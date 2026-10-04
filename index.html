@@ -57,7 +57,7 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .danger{color:var(--bad);border-color:var(--bad)}
 .row{display:flex;align-items:center;gap:10px}
 .grow{flex:1;min-width:0}
-input[type=text],input[type=search],select,textarea{font:inherit;width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
+input[type=text],input[type=search],input[type=time],select,textarea{font:inherit;width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
 textarea{min-height:90px;resize:vertical;font-size:13px}
 .hint{font-size:14px;color:var(--muted);margin:0}
 .btnrow{display:flex;gap:8px;flex-wrap:wrap}
@@ -468,6 +468,7 @@ let state = load() || fresh();
 const TAGS = { W:"warm-up", D:"drop set", F:"to failure" };
 let swap = null, review = null, goalsOpen = null, pastOpen = false, restoreOpen = false, restoreText = "";
 let ready = null, shoot = false, viewPhoto = null, cmp = { pose:"front", a:null, b:null, split:50 }, offlineReady = false;
+let cardioUI = null, cdEditOpen = false, calOpen = false, calOffer = null;
 let picker = null, toast = null, toastT = null, summary = null, confirmKey = null, confirmTimer = null, backupBox = null, progressEx = null;
 // Fills in what older saves don't have. The current block starts at the first workout of today's program days.
 function migrate(){
@@ -478,6 +479,8 @@ function migrate(){
   if (!state.body) state.body = { log:{}, photos:[] };
   if (state.askReady == null) state.askReady = true;
   if (!state.bar) state.bar = state.units === "kg" ? 20 : 45;
+  if (!state.cardio) state.cardio = { log:[] };
+  if (state.goals.cardio == null) state.goals.cardio = 150;
   if (!state.block){
     const ids = new Set(state.days.map(d => d.id)), first = state.sessions.find(s => ids.has(s.dayId));
     state.block = { id:uid(), n:1, start:startOfDay(first ? first.start : Date.now()), weeks:REC_WEEKS[state.goals.exp], auto:true, intro:false, scheme:0 };
@@ -913,6 +916,12 @@ function nudges(){
   if (state.sessions.length >= 3 && days >= 30 && !(state.backupSnooze > Date.now()))
     out.push(`<div class="panel" style="gap:8px"><b>💾 Time to back up</b><span class="hint">${state.lastBackup ? `It's been ${days} days since your last backup.` : "You haven't saved a backup yet."} Your workouts, body stats and photos live only on this phone.</span>
       <div class="btnrow"><button class="small" data-act="downloadBackup" id="nudgeBackup">Save backup file</button><button class="small ghost" data-act="backupLater" id="backupLater">Next week</button></div></div>`);
+  if (isIOS && !standalone() && state.sessions.length >= 3 && !(state.homeSnooze > Date.now()))
+    out.push(`<div class="panel" style="gap:8px" id="homeNudge"><b>📲 Keep your log safe on the Home Screen</b><span class="hint">Safari can clear website data after about a week without a visit, but not a Home Screen app's. The Home Screen app starts empty, so save a backup file first, then add Iron Log to your Home Screen (Share → Add to Home Screen) and restore the file there.</span>
+      <div class="btnrow"><button class="small" data-act="downloadBackup" id="homeBackup">Save backup file</button><button class="small ghost" data-act="homeLater" id="homeLater">Not now</button></div></div>`);
+  if (state.days.length && state.sessions.length >= 2 && !(state.cal && state.cal.added) && !(state.calSnooze > Date.now()))
+    out.push(`<div class="panel" style="gap:8px" id="calNudge"><b>📅 Get workout reminders</b><span class="hint">Add your training days to your phone's Calendar, with an alert before each one.</span>
+      <div class="btnrow"><button class="small" data-act="calSetup" id="calSetup">Set them up</button><button class="small ghost" data-act="calLater" id="calLater">No thanks</button></div></div>`);
   return out.join("");
 }
 // before a workout: a quick check on how you feel, which holds targets steady on a rough day
@@ -957,6 +966,176 @@ function warmupHelp(it, ex, xi){
   return html;
 }
 
+// ---------- cardio ----------
+// The weekly goal is counted in moderate minutes, and hard minutes count double, as in the WHO guideline
+// (150–300 minutes of moderate activity a week, or 75–150 of vigorous). Walks and runs logged here count,
+// and so do cardio exercises done inside a workout.
+const CARDIO_KINDS = { walk:"🚶 Walk", run:"🏃 Run", bike:"🚴 Bike", swim:"🏊 Swim", class:"🤸 Class", sport:"🏓 Sport", other:"Other" };
+const HARD_CARDIO = /run|sprint|interval|hiit|jump rope|stair|spin|swim/i;
+const weekStartOf = t => startOfDay(t) - ((new Date(t).getDay() + 6) % 7) * dayMs;
+function cardioIn(a, b){
+  const out = state.cardio.log.filter(x => x.at >= a && x.at < b).map(x => ({ ...x, label:CARDIO_KINDS[x.kind] ? CARDIO_KINDS[x.kind].replace(/^\S+ /, "") : "Cardio" }));
+  state.sessions.forEach(s => { if (s.end < a || s.end >= b) return;
+    s.items.forEach(it => { const ex = exById(it.ex); if (ex.m !== "Cardio") return;
+      const sec = it.sets.filter(x => x.done && x.tag !== "W").reduce((t, x) => t + (parseTime(x.r) || 0), 0);
+      if (sec >= 60) out.push({ at:s.end, min:Math.round(sec / 60), hard:HARD_CARDIO.test(ex.n), label:ex.n, inWorkout:true }); }); });
+  return out.sort((x, y) => x.at - y.at);
+}
+const cardioMin = list => list.reduce((t, x) => t + x.min * (x.hard ? 2 : 1), 0);
+function cardioTip(left, days){
+  if (left <= 0) return "✓ Goal met this week. Nice.";
+  const n = Math.ceil(left / 30), words = ["", "one", "two", "three", "four", "five", "six", "seven"], walk = Math.max(10, Math.ceil(left / 5) * 5);
+  if (days <= 1) return left <= 45 ? `${left} min to go today: one ${walk}-minute walk will do it.` : `${left} min to go today. Any walk still counts, and a new week starts tomorrow.`;
+  const how = left <= 30 ? `one ${walk}-minute walk will do it` : n <= days ? `${words[n]} 30-minute walks will do it` : `about ${Math.ceil(left / days / 5) * 5} minutes a day will do it`;
+  return `${left} min to go with ${plural(days, "day")} left: ${how}.`;
+}
+function cardioCard(){
+  const goal = state.goals.cardio; if (!goal) return "";
+  const a = weekStartOf(Date.now()), list = cardioIn(a, a + 7 * dayMs), m = cardioMin(list), daysLeft = 7 - ((new Date().getDay() + 6) % 7);
+  const mine = list.filter(x => !x.inWorkout);
+  return `<div class="panel" style="gap:8px" id="cardioCard"><div class="row"><b class="grow">❤️ Cardio this week</b><span class="num"><b>${m}</b> / ${goal} min</span></div>
+    <div class="pbar"><span style="width:${Math.min(100, m / goal * 100)}%;${m >= goal ? "background:var(--good)" : ""}"></span></div>
+    <span class="hint">${cardioTip(goal - m, daysLeft)}</span>
+    ${list.length ? `<span class="hint num">${list.map(x => `${new Date(x.at).toLocaleDateString(undefined,{weekday:"short"})}: ${esc(x.label)} ${x.min} min${x.hard ? " (hard, counts double)" : ""}`).join(" · ")}</span>` : ""}
+    <div class="btnrow"><button class="small" data-act="cdOpen" id="cdOpen">+ Log cardio</button></div>
+    ${mine.length ? `<details id="cdEdit" ${cdEditOpen ? "open" : ""}><summary style="cursor:pointer;font-size:14px;font-weight:700">Edit this week's cardio</summary>${mine.map(x => `<div class="row" style="margin-top:6px"><span class="grow num" style="font-size:14px">${fmtDate(x.at)}: ${esc(x.label)} ${x.min} min${x.hard ? " (hard)" : ""}</span><button class="small danger" data-act="cdDel" data-id="${x.id}" id="cdDel-${x.id}">${confirmKey === "cddel" + x.id ? "Delete?" : "✕"}</button></div>`).join("")}</details>` : ""}</div>`;
+}
+function cardioView(){
+  const c = cardioUI, ch = (act, v, l, on) => `<button class="chip" data-act="${act}" data-v="${v}" id="${act}-${v}" aria-pressed="${on}">${l}</button>`;
+  return `<div class="modal" role="dialog" aria-modal="true" aria-label="Log cardio"><div class="mb" style="padding-top:calc(16px + env(safe-area-inset-top,0px))"><div class="inner" style="display:flex;flex-direction:column;gap:16px;padding-bottom:24px">
+    <div class="row"><h2 class="grow">Log cardio</h2><button class="small ghost" data-act="cdClose" id="cdClose">Cancel</button></div>
+    <div class="gfield"><span class="gl">What</span><div class="chips">${Object.entries(CARDIO_KINDS).map(([k, l]) => ch("cdKind", k, l, c.kind === k)).join("")}</div></div>
+    <div class="gfield"><span class="gl">Minutes</span><div class="chips">${[10,20,30,45,60,90].map(v => ch("cdMinC", v, `${v}`, c.min === v)).join("")}</div>
+      <input type="text" inputmode="numeric" id="cdMin" value="${c.min || ""}" placeholder="Minutes" autocomplete="off" aria-label="Minutes"></div>
+    <div class="gfield"><span class="gl">How hard</span><div class="chips">${ch("cdHard", 0, "Easy to moderate", !c.hard)}${ch("cdHard", 1, "Hard", !!c.hard)}</div>
+      <p class="hint">Moderate: you can talk but not sing, like a brisk walk. Hard: you can only say a few words, like running. Hard minutes count double.</p></div>
+    <div class="gfield"><span class="gl">When</span><div class="chips">${[[0,"Today"],[1,"Yesterday"],[2,"2 days ago"]].map(([v, l]) => ch("cdDay", v, l, c.day === v)).join("")}</div></div>
+    ${c.err ? `<p class="err">${esc(c.err)}</p>` : ""}
+    <button class="primary" data-act="cdSave" id="cdSave">Save</button></div></div></div>`;
+}
+function cardioChart(){
+  const goal = state.goals.cardio, now = Date.now(), wk = weekStartOf(now);
+  const weeks = Array.from({ length:8 }, (_, k) => { const a = wk - (7 - k) * 7 * dayMs; return { a, v:cardioMin(cardioIn(a, a + 7 * dayMs)) }; });
+  if (!goal && !weeks.some(w => w.v)) return "";
+  const W = 320, Hh = 120, bw = W / 8, top = Math.max(goal || 0, ...weeks.map(w => w.v), 30) * 1.1, y = v => Hh - v / top * (Hh - 4);
+  const met = goal ? weeks.slice(0, 7).filter(w => w.v >= goal).length : 0;
+  return `<div class="panel"><div class="row"><h3 class="grow">Cardio per week (min)</h3>${goal ? `<span class="hint">goal ${goal}</span>` : ""}</div><svg class="chart" viewBox="0 0 ${W + 40} ${Hh + 28}" role="img" aria-label="Cardio minutes per week, last 8 weeks">
+    <line class="grid" x1="36" x2="${W + 36}" y1="${Hh}" y2="${Hh}"/>
+    ${goal ? `<line x1="36" x2="${W + 36}" y1="${y(goal)}" y2="${y(goal)}" stroke="var(--good)" stroke-width="2" stroke-dasharray="5 4"/><text x="30" y="${y(goal) + 4}" text-anchor="end">${goal}</text>` : ""}
+    <text x="30" y="${Hh + 4}" text-anchor="end">0</text>
+    ${weeks.map((w, k) => { const x = 36 + k * bw + 5, h = Hh - y(w.v); return `<rect class="bar" x="${x}" y="${Hh - h}" width="${bw - 10}" height="${Math.max(0, h)}" rx="4" ${goal && w.v >= goal ? `style="fill:var(--good)"` : ""}><title>Week of ${fmtDate(w.a)}: ${w.v} min</title></rect><text x="${x + (bw - 10) / 2}" y="${Hh + 18}" text-anchor="middle">${k === 7 ? "This wk" : new Date(w.a).toLocaleDateString(undefined,{month:"numeric",day:"numeric"})}</text>`; }).join("")}
+  </svg>${goal ? `<p class="hint">Goal met in ${met} of the last 7 full weeks. Hard minutes count double.</p>` : ""}</div>`;
+}
+
+// ---------- calendar reminders ----------
+// Web apps can't schedule notifications, so the workout days go into the phone's Calendar as weekly events with an alert.
+// iPhone only offers "Add All" when the page navigates straight to a text/calendar file (not a download or a share).
+const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+const standalone = () => navigator.standalone === true || !!(window.matchMedia && matchMedia("(display-mode: standalone)").matches);
+const WEEKDAYS = [[1,"MO","Mon"],[2,"TU","Tue"],[3,"WE","Wed"],[4,"TH","Thu"],[5,"FR","Fri"],[6,"SA","Sat"],[0,"SU","Sun"]];
+const ALERTS = [[0,"At start"],[15,"15 min before"],[30,"30 min before"],[60,"1 hour before"]];
+const wdOrder = d => (d + 6) % 7;
+function calDefaults(){
+  const n = Math.max(1, Math.min(7, state.days.length || 3)), recent = state.sessions.filter(s => s.end > Date.now() - 56 * dayMs);
+  let days = ({ 1:[1], 2:[1,4], 3:[1,3,5], 4:[1,2,4,5], 5:[1,2,3,4,5], 6:[1,2,3,4,5,6], 7:[0,1,2,3,4,5,6] })[n], time = "18:00";
+  if (recent.length >= n * 2){ const c = [0,0,0,0,0,0,0]; recent.forEach(s => c[new Date(s.start).getDay()]++); days = [0,1,2,3,4,5,6].filter(d => c[d]).sort((a, b) => c[b] - c[a] || wdOrder(a) - wdOrder(b)).slice(0, n); }
+  if (recent.length >= 3){ const mins = recent.map(s => { const d = new Date(s.start); return d.getHours() * 60 + d.getMinutes(); }).sort((a, b) => a - b), m = Math.round(mins[Math.floor(mins.length / 2)] / 15) * 15 % 1440;
+    time = `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`; }
+  return { days:days.sort((a, b) => wdOrder(a) - wdOrder(b)), time, alert:30, added:null };
+}
+const calNow = () => state.cal || calDefaults();
+const timeTxt = t => { const [h, m] = t.split(":").map(Number), d = new Date(); d.setHours(h, m, 0, 0); return d.toLocaleTimeString(undefined, { hour:"numeric", minute:"2-digit" }); };
+// one name per reminder day when there are as many days as workout days, in order (Mon = first day)
+function calNames(c){ const order = c.days.slice().sort((a, b) => wdOrder(a) - wdOrder(b)); return order.length === state.days.length ? state.days.map(d => d.name) : []; }
+function icsText(c){
+  const pad = n => String(n).padStart(2, "0"), stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z"), tok = uid();
+  const [hh, mm] = c.time.split(":").map(Number), mins = c.minutes || 60, names = c.names || [];
+  const tx = s => String(s).replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\r?\n/g, "\\n");
+  const fold = line => { const enc = new TextEncoder(), parts = []; let cur = "", n = 0, max = 75;
+    for (const ch of line){ const b = enc.encode(ch).length; if (n + b > max){ parts.push(cur); cur = ""; n = 0; max = 74; } cur += ch; n += b; }
+    parts.push(cur); return parts.join("\r\n "); };
+  const L = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Iron Log//Workout reminders//EN", "CALSCALE:GREGORIAN", "METHOD:PUBLISH"];
+  c.days.slice().sort((a, b) => wdOrder(a) - wdOrder(b)).forEach((wd, k) => {
+    const d = new Date(); d.setHours(0, 0, 0, 0); while (d.getDay() !== wd) d.setDate(d.getDate() + 1);
+    const code = WEEKDAYS.find(w => w[0] === wd)[1], name = names[k] || "";
+    L.push("BEGIN:VEVENT", `UID:ironlog-${tok}-${code}@porkupine0.github.io`, `DTSTAMP:${stamp}`,
+      `DTSTART:${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}T${pad(hh)}${pad(mm)}00`, `DURATION:PT${mins}M`, `RRULE:FREQ=WEEKLY;BYDAY=${code}`,
+      `SUMMARY:${tx(name ? `💪 Workout: ${name}` : "💪 Workout")}`,
+      `DESCRIPTION:${tx(name ? `${name} day. If you missed a workout, Iron Log shows what's up next.` : "Open Iron Log to see what's up next.")}`,
+      `URL:${c.url || location.href.split(/[?#]/)[0]}`,
+      "BEGIN:VALARM", "ACTION:DISPLAY", `DESCRIPTION:${tx(name ? `Workout: ${name}` : "Workout")}`, `TRIGGER:${c.alert ? `-PT${c.alert}M` : "PT0S"}`, "END:VALARM", "END:VEVENT");
+  });
+  L.push("END:VCALENDAR");
+  return L.map(fold).join("\r\n") + "\r\n";
+}
+function openCalendarFile(c){
+  const url = URL.createObjectURL(new Blob([icsText(c)], { type:"text/calendar;charset=utf-8" }));
+  if (isIOS) location.href = url;
+  else { const a = document.createElement("a"); a.href = url; a.download = "iron-log-workouts.ics"; document.body.appendChild(a); a.click(); a.remove(); }
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+// what Safari needs to add the same reminders when a Home Screen app can't open the Calendar sheet (iOS 17+ x-safari- links)
+function calLink(c){ const q = { d:c.days, t:c.time, a:c.alert, m:c.minutes, n:c.names }; return `x-safari-https://${location.host}${location.pathname}?cal=${encodeURIComponent(JSON.stringify(q))}`; }
+function calPanel(){
+  if (!state.days.length) return "";
+  const c = calNow(), names = calNames(c), order = c.days.slice().sort((a, b) => wdOrder(a) - wdOrder(b));
+  const summary = order.map(d => WEEKDAYS.find(w => w[0] === d)[2]).join(", ");
+  const full = { ...c, names, minutes:state.goals.minutes || 60 };
+  return `<details class="panel" id="calPanel" ${calOpen ? "open" : ""}><summary style="cursor:pointer;font-weight:800">📅 Workout reminders${state.cal && state.cal.added ? `: ${esc(summary)} at ${timeTxt(c.time)}` : ""}</summary>
+    <div style="display:flex;flex-direction:column;gap:16px;margin-top:12px">
+      <p class="hint">Iron Log can't send notifications on its own, so it adds your workouts to your phone's Calendar. The Calendar reminds you even when the app is closed.</p>
+      <div class="gfield"><span class="gl">Days</span><div class="chips">${WEEKDAYS.map(([d, , l]) => `<button class="chip" data-act="calDay" data-v="${d}" id="calDay-${d}" aria-pressed="${c.days.includes(d)}">${l}</button>`).join("")}</div>
+        <p class="hint">${!c.days.length ? "Pick at least one day." : names.length ? `One reminder per workout day, in order: ${order.map((d, k) => `${WEEKDAYS.find(w => w[0] === d)[2]} ${esc(names[k])}`).join(" · ")}.` : `You have ${plural(state.days.length, "workout day")} and ${plural(c.days.length, "reminder day")}, so each reminder just says Workout. The app shows what's up next.`}</p></div>
+      <div class="gfield"><label class="gl" for="calTime">Time</label><input type="time" id="calTime" value="${c.time}" step="300" style="max-width:180px"></div>
+      <div class="gfield"><span class="gl">Alert</span><div class="chips">${ALERTS.map(([v, l]) => `<button class="chip" data-act="calAlert" data-v="${v}" id="calAlert-${v}" aria-pressed="${c.alert === v}">${l}</button>`).join("")}</div></div>
+      <button class="primary" data-act="calAdd" id="calAdd" ${c.days.length ? "" : "disabled"}>📅 Add to Calendar</button>
+      ${isIOS && standalone() && c.days.length ? `<p class="hint">Nothing opened? <a href="${esc(calLink(full))}" id="calSafari">Open in Safari</a> and tap Add to Calendar there.</p>` : ""}
+      <p class="hint">Each event repeats every week and lasts ${state.goals.minutes || 60} minutes, your workout length. ${state.cal && state.cal.added ? `You added them ${agoTxt(state.cal.added)}. ` : ""}To change the days or time later, delete the old events in Calendar first, then add them again.</p>
+    </div></details>`;
+}
+// Safari opened from a Home Screen app's "Open in Safari" link: offer the same reminders
+function calOfferView(){
+  const c = calOffer, order = c.days.slice().sort((a, b) => wdOrder(a) - wdOrder(b));
+  return `<div class="panel due" id="calOffer"><h2>📅 Add your workout reminders</h2>
+    <p class="hint">${esc(order.map(d => WEEKDAYS.find(w => w[0] === d)[2]).join(", "))} at ${timeTxt(c.time)}${c.alert ? `, with an alert ${ALERTS.find(a => a[0] === c.alert)[1]}` : ", with an alert at the start"}.</p>
+    <button class="primary" data-act="calOfferAdd" id="calOfferAdd">📅 Add to Calendar</button>
+    <button class="ghost small" data-act="calOfferClose" id="calOfferClose">Close</button></div>`;
+}
+function readCalOffer(){
+  try{
+    const q = new URLSearchParams(location.search).get("cal"); if (!q) return;
+    const o = JSON.parse(q), days = Array.isArray(o.d) ? o.d.filter(d => Number.isInteger(d) && d >= 0 && d <= 6) : [];
+    if (!days.length || !/^\d{2}:\d{2}$/.test(o.t)) return;
+    calOffer = { days:[...new Set(days)], time:o.t, alert:ALERTS.some(a => a[0] === o.a) ? o.a : 30, minutes:Math.min(240, Math.max(10, +o.m || 60)), names:Array.isArray(o.n) ? o.n.map(String).slice(0, 7) : [] };
+    history.replaceState(null, "", location.pathname);
+    if (!state.active) state.tab = "train";
+  }catch(e){ calOffer = null; }
+}
+
+// ---------- restoring a backup ----------
+async function restoreFrom(text, tab){
+  let obj, data;
+  try{ obj = JSON.parse(String(text || "").trim()); data = obj.data || obj; if (!Array.isArray(data.days) || !Array.isArray(data.sessions)) throw new Error("bad"); }
+  catch(err){ showToast("That doesn't look like an Iron Log backup."); render(); return false; }
+  state = { ...fresh(), ...data, timer:null, tab:tab || "program" }; review = null; restoreText = ""; restoreOpen = false; migrate(); save();
+  let n = 0;
+  for (const [id, d] of Object.entries(obj.photos || {})){
+    try{ const full = await (await fetch(d)).blob(), img = await blobImage(full), thumb = await jpeg(scaled(img, 360), .75); URL.revokeObjectURL(img.src); await idbPut(id, { full, thumb }); dropCache(id); n++; }catch(e){}
+  }
+  showToast(`Restored ${plural(state.sessions.length,"workout")}${n ? ` and ${plural(n, "photo")}` : ""}.`); render();
+  return true;
+}
+const hasData = () => state.sessions.length > 0 || state.days.length > 0;
+// a Home Screen app keeps its own data, separate from Safari: when it's empty, offer to bring Safari's data over
+function moveInCard(){
+  if (!isIOS || !standalone() || hasData()) return "";
+  return `<div class="panel due" id="moveIn"><h2>Used Iron Log in Safari before?</h2>
+    <p class="hint">This Home Screen app keeps its own data, separate from Safari, so it starts empty. To bring everything over, photos included: open ${esc((location.host + location.pathname).replace(/index\.html$/, ""))} in Safari, go to Program → Settings &amp; backup and tap Save backup file. Then come back here and restore it.</p>
+    <button class="primary" data-act="restoreFile" id="moveInFile">📁 Restore from a file</button>
+    <button data-act="restorePaste" id="moveInPaste">📋 Paste a copied backup</button>
+    <p class="hint">Copy backup carries everything except photos.</p></div>`;
+}
+
 // ---------- timer ----------
 let audioCtx = null;
 function unlockAudio(){ try{ if (!audioCtx){ audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } if (audioCtx.state === "suspended") audioCtx.resume(); }catch(e){} }
@@ -993,9 +1172,9 @@ function render(){
     <div class="tabs" role="tablist">${tabs.map(([k,l])=>`<button class="tab" role="tab" id="tab-${k}" data-act="tab" data-v="${k}" aria-selected="${state.tab===k}">${l}</button>`).join("")}</div></div>` +
     (!saveOK ? `<div class="err">This browser isn't letting the app save right now (private browsing?). Your workout will be lost if you close it.</div>` : "") +
     (state.tab === "train" ? trainView() : state.tab === "body" ? bodyView() : state.tab === "program" ? programView() : state.tab === "history" ? historyView() : progressView()) +
-    timerView() + (picker ? pickerView() : "") + (swap && !picker ? swapView() : "") + (ready && !picker ? readyView() : "") + (viewPhoto ? photoView() : "") + (toast ? `<div class="toast" role="status">${toast}</div>` : "");
+    timerView() + (picker ? pickerView() : "") + (swap && !picker ? swapView() : "") + (ready && !picker ? readyView() : "") + (cardioUI && !picker ? cardioView() : "") + (viewPhoto ? photoView() : "") + (toast ? `<div class="toast" role="status">${toast}</div>` : "");
   if (focusId){ const el = document.getElementById(focusId); if (el && !picker || (el && picker && el.closest(".modal"))){ el.focus({preventScroll:true}); try{ if (sel != null) el.setSelectionRange(sel, sel); }catch(_){} } }
-  if (!picker && !swap && !ready && !viewPhoto) window.scrollTo(0, y);
+  if (!picker && !swap && !ready && !viewPhoto && !cardioUI) window.scrollTo(0, y);
   afterRender();
 }
 
@@ -1022,7 +1201,7 @@ function trainView(){
   if (state.active) return sessionView();
   if (review) return reviewView();
   if (!state.days.length){
-    return `<div class="panel"><h2>Let's build your program</h2><p class="hint">Set up 3 to 5 workout days. Start from a template, or build your own from about 290 exercises.</p>
+    return (calOffer ? calOfferView() : "") + moveInCard() + `<div class="panel"><h2>Let's build your program</h2><p class="hint">Set up 3 to 5 workout days. Start from a template, or build your own from about 290 exercises.</p>
       <button class="primary" data-act="tab" data-v="program" id="goProgram">Set up my workout days</button></div>` + quickStart();
   }
   const nx = upNextIdx();
@@ -1034,7 +1213,7 @@ function trainView(){
       <button class="go" data-act="startDay" data-i="${i}" id="start-${i}" ${d.items.length?"":"disabled"}>Start</button></div>`;
   }).join("");
   const wk = state.sessions.filter(s => s.end > Date.now() - 7*dayMs).length;
-  return blockCard() + nudges() + `<div class="panel"><div class="row"><h2 class="grow">Which day is it?</h2><span class="hint num">${plural(wk,"workout")} this week</span></div><div class="days">${cards}</div></div>` + quickStart();
+  return (calOffer ? calOfferView() : "") + blockCard() + nudges() + cardioCard() + `<div class="panel"><div class="row"><h2 class="grow">Which day is it?</h2><span class="hint num">${plural(wk,"workout")} this week</span></div><div class="days">${cards}</div></div>` + quickStart();
 }
 function quickStart(){ return `<button class="ghost" data-act="startEmpty" id="startEmpty">Start an empty workout</button>`; }
 
@@ -1150,7 +1329,7 @@ function programView(){
   const tpl = `<details class="panel" ${state.days.length?"":"open"}><summary style="cursor:pointer;font-weight:800">Start from a template</summary>
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">${Object.entries(TEMPLATES).map(([k,t])=>`<button style="text-align:left" data-act="tpl" data-v="${k}" id="tpl-${k}"><b>${t.name}</b><br><span class="hint">${t.note} ${t.days.map(d=>d.name).join(" · ")}</span></button>`).join("")}
     ${state.days.length?`<p class="hint">${confirmKey&&confirmKey.startsWith("tpl")?"Tap again to replace your current days.":"Using a template replaces your current days. Your history stays."}</p>`:""}</div></details>`;
-  return blockPanel() + goalsPanel() + tpl + playbook() + days + `<button data-act="addDay" id="addDay" ${state.days.length>=7?"disabled":""}>+ Add a workout day</button>
+  return blockPanel() + goalsPanel() + calPanel() + tpl + playbook() + days + `<button data-act="addDay" id="addDay" ${state.days.length>=7?"disabled":""}>+ Add a workout day</button>
     <p class="hint">${state.days.length<3?"Most programs use 3 to 5 days.":state.days.length>5?"That's a lot of days. 3 to 5 is the sweet spot.":`${state.days.length} days. Nice.`} Changes here apply to your next workout.</p>` + settingsView();
 }
 
@@ -1177,6 +1356,8 @@ function goalsBody(){
       <p class="hint">Up to 3. They get a little more volume, a second day if needed, and go first in the workout, where lifts gain the most (Nunes 2021).</p></div>
     <div class="gfield"><span class="gl">Where you train</span>${chips("where", WHERES)}</div>
     <div class="gfield"><span class="gl">Workout length</span><div class="chips">${[45,60,75,90].map(v => `<button class="chip" data-act="goal" data-k="minutes" data-v="${v}" id="g-minutes-${v}" aria-pressed="${g.minutes===v}">${v} min</button>`).join("")}</div></div>
+    <div class="gfield"><span class="gl">Weekly cardio</span><div class="chips">${[[0,"Off"],[90,"90 min"],[150,"150 min ★"],[200,"200 min"],[300,"300 min"]].map(([v, l]) => `<button class="chip" data-act="cardioGoal" data-v="${v}" id="g-cardio-${v}" aria-pressed="${g.cardio===v}">${l}</button>`).join("")}</div>
+      <p class="hint">★ Health guidelines call for at least 150 minutes of moderate cardio a week (a brisk walk counts), or 75 minutes of hard cardio.${g.goal === "cut" ? " While cutting, 200–300 burns more without eating into recovery, as long as most of it is walking." : " Easy cardio like walking doesn't slow muscle growth."}</p></div>
     <div class="gfield"><span class="gl">Never suggest</span><div class="chips">${g.avoid.map(id => `<button class="chip" data-act="gAvoidRm" data-id="${id}" id="ga-${id}" aria-label="Allow ${esc(exById(id).n)} again">${esc(exById(id).n)} ✕</button>`).join("")}<button class="chip" data-act="pick" data-target="avoid" id="gAvoidAdd">+ Add exercises</button></div>
       <p class="hint">Anything that hurts, or that your gym doesn't have.</p></div>`;
 }
@@ -1202,6 +1383,19 @@ function playbook(){
       <li><b>Warm-up sets don't count.</b> Tag them W so they don't count toward volume, sets or records.</li>
     </ul></details>`;
 }
+function homeTip(){
+  if (!isIOS) return " Save a backup file now and then.";
+  if (standalone()) return " This Home Screen app keeps its own data, separate from Safari, and iPhone doesn't clear it the way Safari can.";
+  return " To keep it safe, add Iron Log to your Home Screen (Share → Add to Home Screen): Safari can clear data from websites you haven't opened in about a week, but not from Home Screen apps. The Home Screen app starts empty, because it keeps its own data, separate from Safari. So tap Save backup file first, then open the Home Screen app and tap Restore from a file.";
+}
+function pickBackupFile(){
+  let f = document.getElementById("restoreFile");
+  if (!f){
+    f = document.createElement("input"); f.type = "file"; f.id = "restoreFile"; f.accept = ".json,application/json,text/plain"; f.hidden = true; document.body.appendChild(f);
+    f.addEventListener("change", () => { const file = f.files && f.files[0], tab = state.tab; f.value = ""; if (file) file.text().then(t => restoreFrom(t, tab), () => showToast("Couldn't read that file.")); });
+  }
+  f.click();
+}
 function settingsView(){
   return `<div class="panel"><h2>Settings &amp; backup</h2>
     <div class="row"><span class="grow" style="font-weight:600">Units</span><div class="chips"><button class="chip" data-act="units" data-v="lb" id="u-lb" aria-pressed="${U()==="lb"}">lb</button><button class="chip" data-act="units" data-v="kg" id="u-kg" aria-pressed="${U()==="kg"}">kg</button></div></div>
@@ -1209,11 +1403,12 @@ function settingsView(){
     <div><span style="font-weight:600">When I swap an exercise</span><div class="chips" style="margin-top:8px">${[["ask","Ask me each time"],["today","Just today"],["always","Update my program"]].map(([k,l])=>`<button class="chip" data-act="swapMode" data-v="${k}" id="sm-${k}" aria-pressed="${state.swapMode===k}">${l}</button>`).join("")}</div></div>
     <div><span style="font-weight:600">Check in on how I feel before workouts</span><div class="chips" style="margin-top:8px"><button class="chip" data-act="askReady" data-v="1" id="ar-on" aria-pressed="${!!state.askReady}">On</button><button class="chip" data-act="askReady" data-v="0" id="ar-off" aria-pressed="${!state.askReady}">Off</button></div></div>
     <div><span style="font-weight:600">Barbell weight</span><div class="chips" style="margin-top:8px">${(U() === "kg" ? [20, 15] : [45, 35]).map(v => `<button class="chip" data-act="bar" data-v="${v}" id="bar-${v}" aria-pressed="${state.bar===v}">${v} ${U()}</button>`).join("")}</div><p class="hint" style="margin-top:6px">Used for warm-ups and the plates-per-side helper.</p></div>
-    <div class="ok" style="font-weight:600">${offlineReady ? "✓ Works offline: the app is saved on this phone and opens without internet. " : ""}Everything you log, photos included, is saved on this phone, not online. To keep it safe on iPhone, add this app to your Home Screen (Share → Add to Home Screen). Safari can clear data from websites you haven't opened in about a week, but not from Home Screen apps.</div>
+    <div class="ok" style="font-weight:600">${offlineReady ? "✓ Works offline: the app is saved on this phone and opens without internet. " : ""}Everything you log, photos included, is saved on this phone, not online.${homeTip()}</div>
     <div class="btnrow"><button data-act="copyBackup" id="copyBackup">📋 Copy backup</button><button data-act="downloadBackup" id="downloadBackup">⬇️ Save backup file</button></div>
     <p class="hint">${state.lastBackup ? `Last backup ${agoTxt(state.lastBackup)}.` : "No backup saved yet."} The file includes your progress photos${photos().length ? ` (${plural(photos().length, "photo")})` : ""}; copied text doesn't.</p>
     <details id="restorePanel" ${restoreOpen ? "open" : ""}><summary style="cursor:pointer;font-weight:700">Restore from a backup</summary>
-      <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px"><textarea id="restoreBox" placeholder="Paste your backup here" aria-label="Backup text">${esc(restoreText)}</textarea>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px"><button data-act="restoreFile" id="restoreFileBtn">${confirmKey==="restorefile"?"Tap again to replace everything with a backup file":"📁 Restore from a file"}</button>
+      <span class="hint">Or paste a copied backup:</span><textarea id="restoreBox" placeholder="Paste your backup here" aria-label="Backup text">${esc(restoreText)}</textarea>
       <button data-act="restore" id="restore">${confirmKey==="restore"?"Tap again to replace everything with this backup":"Restore"}</button></div></details>
     ${backupBox!=null?`<textarea id="backupOut" readonly aria-label="Your backup">${esc(backupBox)}</textarea><p class="hint">Couldn't copy automatically. Select all of the text above and copy it into a note or email to yourself.</p>`:""}
     <p class="hint num">${plural(state.sessions.length,"workout")} saved · ${state.custom.length} custom exercise${state.custom.length===1?"":"s"}</p>
@@ -1254,7 +1449,7 @@ function progressView(){
     <line class="grid" x1="36" x2="${W+36}" y1="${Hh}" y2="${Hh}"/><line class="grid" x1="36" x2="${W+36}" y1="${Hh/2}" y2="${Hh/2}"/><line class="grid" x1="36" x2="${W+36}" y1="4" y2="4"/>
     <text x="30" y="${Hh+4}" text-anchor="end">0</text><text x="30" y="${Hh/2+4}" text-anchor="end">${fmtK(niceMax/2)}</text><text x="30" y="8" text-anchor="end">${fmtK(niceMax)}</text>
     ${weeks.map((w,k)=>{ const h = w.v/niceMax*(Hh-4); const x = 36 + k*bw + 5; return `<rect class="bar" x="${x}" y="${Hh-h}" width="${bw-10}" height="${Math.max(0,h)}" rx="4"><title>Week of ${fmtDate(w.a)}: ${w.v.toLocaleString()} ${U()}</title></rect><text x="${x+(bw-10)/2}" y="${Hh+18}" text-anchor="middle">${k===7?"This wk":new Date(w.a).toLocaleDateString(undefined,{month:"numeric",day:"numeric"})}</text>`; }).join("")}
-  </svg></div>`;
+  </svg></div>` + cardioChart();
   // muscles, last 30 days
   const week = S.filter(s => s.end > now - 7*dayMs), mc = {};
   week.forEach(s => s.items.forEach(it => { const ex = exById(it.ex); if (ex.t === "time" || ["Cardio","Mobility","Full body"].includes(ex.m)) return; const n = it.sets.filter(x=>x.done && x.tag !== "W").length; if (n){ mc[ex.m] = (mc[ex.m]||0) + n; } }));
@@ -1819,17 +2014,41 @@ document.addEventListener("click", e => {
         state.lastBackup = Date.now(); save(); showToast(`Backup file saved${out.photos ? ` with ${plural(Object.keys(out.photos).length, "photo")}` : ""}.`); }
       catch(err){ showToast("Your browser blocked the download. Use Copy backup instead."); }
       render(); })(); break;
-    case "restore": confirmThen("restore", async ()=>{
-      let obj, data;
-      try{ obj = JSON.parse(restoreText.trim()); data = obj.data || obj; if (!Array.isArray(data.days) || !Array.isArray(data.sessions)) throw new Error("bad"); }
-      catch(err){ showToast("That doesn't look like an Iron Log backup."); render(); return; }
-      state = { ...fresh(), ...data, timer:null, tab:"program" }; review = null; restoreText = ""; restoreOpen = false; migrate(); save();
-      let n = 0;
-      for (const [id, d] of Object.entries(obj.photos || {})){
-        try{ const full = await (await fetch(d)).blob(), img = await blobImage(full), thumb = await jpeg(scaled(img, 360), .75); URL.revokeObjectURL(img.src); await idbPut(id, { full, thumb }); dropCache(id); n++; }catch(e){}
-      }
-      showToast(`Restored ${plural(state.sessions.length,"workout")}${n ? ` and ${plural(n, "photo")}` : ""}.`); render();
-    }); break;
+    case "restore": confirmThen("restore", () => restoreFrom(restoreText, "program")); break;
+    case "restoreFile": if (hasData()) confirmThen("restorefile", pickBackupFile); else pickBackupFile(); break;
+    case "restorePaste": (async () => {
+      let t = ""; try{ t = await navigator.clipboard.readText(); }catch(e){ t = ""; }
+      if (t && t.includes('"sessions"')){ await restoreFrom(t, "train"); return; }
+      restoreOpen = true; state.tab = "program"; save(); showToast("Paste your backup in the box, then tap Restore."); render();
+      const el = document.getElementById("restorePanel"); if (el) el.scrollIntoView({ block:"center" });
+    })(); break;
+    // cardio
+    case "cdOpen": cardioUI = { kind:"walk", min:30, hard:false, day:0, err:"" }; render(); window.scrollTo(0, 0); break;
+    case "cdClose": cardioUI = null; render(); break;
+    case "cdKind": cardioUI.kind = b.dataset.v; cardioUI.hard = b.dataset.v === "run" || b.dataset.v === "swim"; render(); break;
+    case "cdMinC": cardioUI.min = +b.dataset.v; cardioUI.err = ""; render(); break;
+    case "cdHard": cardioUI.hard = b.dataset.v === "1"; render(); break;
+    case "cdDay": cardioUI.day = +b.dataset.v; render(); break;
+    case "cdSave": {
+      const m = parseInt(String(cardioUI.min).replace(/\D/g, ""), 10);
+      if (!(m >= 1 && m <= 600)){ cardioUI.err = "Enter the minutes, from 1 to 600."; render(); break; }
+      state.cardio.log.push({ id:uid(), at:Date.now() - cardioUI.day * dayMs, min:m, kind:cardioUI.kind, hard:!!cardioUI.hard });
+      const what = CARDIO_KINDS[cardioUI.kind].replace(/^\S+ /, "").toLowerCase();
+      cardioUI = null; save(); showToast(`Logged ${m} min${what === "other" ? " of cardio" : ` · ${what}`}.`); render(); break;
+    }
+    case "cdDel": confirmThen("cddel" + b.dataset.id, () => { state.cardio.log = state.cardio.log.filter(x => x.id !== b.dataset.id); save(); render(); }); break;
+    case "cardioGoal": state.goals.cardio = +b.dataset.v; save(); render(); break;
+    // calendar reminders
+    case "calDay": { const c = { ...calNow() }, d = +b.dataset.v; c.days = c.days.includes(d) ? c.days.filter(x => x !== d) : c.days.concat(d).sort((x, y) => wdOrder(x) - wdOrder(y)); state.cal = c; save(); render(); break; }
+    case "calAlert": state.cal = { ...calNow(), alert:+b.dataset.v }; save(); render(); break;
+    case "calAdd": { const c = calNow(); if (!c.days.length) break;
+      openCalendarFile({ ...c, names:calNames(c), minutes:state.goals.minutes || 60 });
+      state.cal = { ...c, added:Date.now() }; save(); showToast(isIOS ? "Tap Add All to put them in your Calendar." : "Calendar file saved. Open it to add the events."); render(); break; }
+    case "calOfferAdd": openCalendarFile({ ...calOffer, url:location.href.split(/[?#]/)[0] }); calOffer = null; showToast("Tap Add All to put them in your Calendar."); render(); break;
+    case "calOfferClose": calOffer = null; render(); break;
+    case "calSetup": state.tab = "program"; calOpen = true; save(); render(); { const el = document.getElementById("calPanel"); if (el) el.scrollIntoView({ block:"start" }); } break;
+    case "calLater": state.calSnooze = Date.now() + 3650 * dayMs; save(); render(); break;
+    case "homeLater": state.homeSnooze = Date.now() + 30 * dayMs; save(); render(); break;
     case "wipe": confirmThen("wipe", ()=>{ photos().forEach(ph => dropCache(ph.id)); idbDo("readwrite", st => st.clear()).catch(() => {}); state = fresh(); state.tab = "program"; review = null; goalsOpen = null; migrate(); save(); render(); }); break;
     case "delSess": confirmThen("dels"+b.dataset.i, ()=>{ state.sessions.splice(+b.dataset.i,1); save(); render(); }); break;
   }
@@ -1840,6 +2059,7 @@ document.addEventListener("input", e => {
   if (t.dataset.note != null){ const v = t.value.trim(); if (v) state.notes[t.dataset.note] = t.value; else delete state.notes[t.dataset.note]; save(); }
   if (t.dataset.dname != null){ state.days[+t.dataset.dname].name = t.value; save(); }
   if (t.id === "restoreBox") restoreText = t.value;
+  if (t.id === "cdMin" && cardioUI){ cardioUI.min = t.value.replace(/\D/g, "").slice(0, 3); cardioUI.err = ""; if (t.value !== cardioUI.min) t.value = cardioUI.min; }
   if (t.id === "cmpRange"){ cmp.split = +t.value; const top = document.getElementById("cmpTop"); if (top) top.style.clipPath = `inset(0 0 0 ${t.value}%)`; }
   if (t.dataset.pf){ const it = state.days[+t.dataset.d].items[+t.dataset.x], v = parseInt(t.value.replace(/\D/g,""),10); if (!isNaN(v)){ it[t.dataset.pf] = v; save(); } }
   if (t.id === "pq" && picker){ picker.q = t.value; const l = lib(); document.getElementById("plist").firstElementChild; rerenderList(); }
@@ -1858,6 +2078,7 @@ document.addEventListener("change", e => {
   if (t.id === "cmpA" || t.id === "cmpB"){ cmp[t.id === "cmpA" ? "a" : "b"] = t.value; render(); return; }
   if (e.target.id === "pe" && picker){ picker.e = e.target.value; render(); }
   if (e.target.id === "progressEx"){ progressEx = e.target.value; render(); }
+  if (t.id === "calTime" && /^\d{2}:\d{2}$/.test(t.value)){ state.cal = { ...calNow(), time:t.value }; save(); render(); }
 });
 document.addEventListener("keydown", e => {
   if (e.key === "Enter" && e.target.dataset && e.target.dataset.f){ e.preventDefault(); const f = e.target.dataset.f, x = e.target.dataset.x, s = e.target.dataset.s;
@@ -1865,10 +2086,10 @@ document.addEventListener("keydown", e => {
 });
 
 // remember which collapsible panels are open, since every tap re-renders the page
-document.addEventListener("toggle", e => { const id = e.target.id; if (id === "goalsPanel") goalsOpen = e.target.open; if (id === "pastBlocks") pastOpen = e.target.open; if (id === "restorePanel") restoreOpen = e.target.open; }, true);
+document.addEventListener("toggle", e => { const id = e.target.id; if (id === "goalsPanel") goalsOpen = e.target.open; if (id === "pastBlocks") pastOpen = e.target.open; if (id === "restorePanel") restoreOpen = e.target.open; if (id === "calPanel") calOpen = e.target.open; if (id === "cdEdit") cdEditOpen = e.target.open; }, true);
 
 if (state.timer && Date.now() - state.timer.end > 60000) state.timer = null;
-migrate(); save();
+migrate(); save(); readCalOffer();
 render();
 if ("serviceWorker" in navigator && window.isSecureContext && location.protocol.startsWith("http"))
   navigator.serviceWorker.register("sw.js").then(() => navigator.serviceWorker.ready).then(() => { offlineReady = true; if (state.tab === "program") render(); }).catch(() => {});
