@@ -1,6 +1,6 @@
 // Iron Log offline support. The app and its photo model are kept on the phone, so the app opens and works without
 // internet. Your data never goes through here: it's saved on the phone by the app itself.
-const SHELL = "ironlog-shell-v1", FONTS = "ironlog-fonts", VISION = "ironlog-vision-v1";
+const SHELL = "ironlog-shell-v1", FONTS = "ironlog-fonts-v2", VISION = "ironlog-vision-v1";
 const FILES = ["./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./body-scan.js"];
 const OWN = [SHELL, FONTS, VISION];
 
@@ -28,7 +28,7 @@ function page(req){
 // saved copy first, refreshed in the background
 function fresh(req, name){
   return caches.open(name).then(c => c.match(req).then(hit => {
-    const net = fetch(req).then(res => { if (res.ok || res.type === "opaque") c.put(req, res.clone()); return res; }).catch(() => hit);
+    const net = fetch(req).then(res => { if (res.ok) c.put(req, res.clone()); return res; }).catch(() => hit);
     return hit || net;
   }));
 }
