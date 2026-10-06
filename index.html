@@ -163,6 +163,12 @@ textarea{min-height:90px;resize:vertical;font-size:13px}
 .exrow .m{font-size:13px;color:var(--muted)}
 .exrow .box{grid-row:1 / 3;grid-column:2;width:30px;height:30px;border-radius:8px;border:2px solid var(--line);display:flex;align-items:center;justify-content:center;font-weight:800}
 .exrow[aria-pressed="true"] .box{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.exask{display:flex;flex-direction:column;gap:10px;padding:16px 0 6px}
+.exask>button{align-self:flex-start;max-width:100%;text-align:left;overflow-wrap:anywhere}
+.exareply{margin:0;font-weight:600}
+.exnew{display:flex;flex-direction:column;gap:6px;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+.exnew .n{font-weight:800}
+.exnew .m{font-size:13px;color:var(--muted)}
 
 /* history & progress */
 .sess{display:flex;flex-direction:column;gap:4px;padding-block:12px;border-top:1px solid var(--line)}
@@ -309,7 +315,7 @@ BUILTIN.sort((a,b) => MUSCLES_ORDER.indexOf(a.m) - MUSCLES_ORDER.indexOf(b.m) ||
 // Physique defaults: big compounds get 2-3 min, other compounds about 2 min, isolation 60-90 s (Singer et al., 2024)
 const HEAVY = new Set(["Back Squat","Front Squat","High-Bar Squat","Low-Bar Squat","Pause Squat","Box Squat","Safety Bar Squat","Deadlift","Sumo Deadlift","Trap Bar Deadlift","Barbell Bench Press","Incline Barbell Bench Press","Close-Grip Bench Press","Overhead Press","Push Press","Barbell Row","Pendlay Row","T-Bar Row","Romanian Deadlift","Stiff-Leg Deadlift","Good Morning","Hip Thrust","Hack Squat","Leg Press","Weighted Pull-Up","Weighted Dip","Rack Pull","Smith Machine Bench Press","Pendulum Squat","Belt Squat","Zercher Squat","Snatch-Grip Deadlift","Deficit Deadlift"]);
 const ISO_RE = /Curl|Raise|Fly|Extension|Pushdown|Kickback|Pec Deck|Crossover|Shrug|Calf|Face Pull|Pull-Apart|Abduction|Adduction|Crunch|Pullover|Wrist|Rotation|Cuban|Side Bend|Frog Pump|Fire Hydrant|Donkey Kick|Clamshell|Twist|Sit-Up|V-Up|Toes to Bar|Y-T-W|Halo|Tibialis|Lu Raise|Straight-Arm|Wall Slide/;
-function klass(ex){ if (ex.t === "time") return "time"; if (HEAVY.has(ex.n)) return "heavy"; if (ISO_RE.test(ex.n) && !/Back Extension|Jefferson/.test(ex.n)) return "iso"; return "comp"; }
+function klass(ex){ if (ex.t === "time") return "time"; if (DEFAULTS[ex.k]) return ex.k; if (HEAVY.has(ex.n)) return "heavy"; if (ISO_RE.test(ex.n) && !/Back Extension|Jefferson/.test(ex.n)) return "iso"; return "comp"; }
 const DEFAULTS = { heavy:{ sets:3, lo:6, hi:10, rest:150 }, comp:{ sets:3, lo:8, hi:12, rest:120 }, iso:{ sets:3, lo:10, hi:15, rest:75 }, time:{ sets:3, lo:30, hi:60, rest:60 } };
 const REST_TIP = { heavy:"Big compound lift: rest 2–3 min so you can match your reps set to set.", comp:"Compound lift: about 2 min rest keeps your reps up.", iso:"Isolation move: 60–90 s rest is plenty. Longer adds little for growth.", time:"Rest as needed. About a minute works for most." };
 
@@ -332,7 +338,8 @@ const PATTERNS = [
   ["anti",/Plank|Hollow|Dead Bug|Bird Dog|Body Saw|Stir|Rollout|Pallof|Bear/],["rotate",/Twist|Chop|Woodchopper|Rotation|Side Bend|Cable Lift|180/],
   ["carry",/Carry|Walk|Hold|Hang/],["oly",/Clean|Snatch|Jerk|Thruster|High Pull/],
 ];
-function patternOf(ex){ for (const [k, re] of PATTERNS) if (re.test(ex.n)) return k; return ex.m; }
+// custom exercises Claude described carry their own pattern (p), rest class (k) and form tip (tip)
+function patternOf(ex){ if (ex.p) return ex.p === "other" ? ex.m : ex.p; for (const [k, re] of PATTERNS) if (re.test(ex.n)) return k; return ex.m; }
 const FORM = {
   squat:"Brace your core, sit between your hips, knees track over toes, and drive up with hips and chest rising together.",
   lunge:"Long enough stride that your front shin stays fairly vertical. Drive through the front heel and keep your torso tall.",
@@ -366,7 +373,7 @@ const FORM = {
   carry:"Stand tall, shoulders packed, and brace your core. Short, steady steps.",
   oly:"Explosive hips, keep the bar close, and get under it fast. Learn with light weight first.",
 };
-const formTip = ex => FORM[patternOf(ex)] || "Controlled reps, full range of motion, and stop a rep or two before your form breaks.";
+const formTip = ex => ex.tip || FORM[patternOf(ex)] || "Controlled reps, full range of motion, and stop a rep or two before your form breaks.";
 const MUSCLES = Object.keys(LIB_SRC);
 
 // ---------- templates ----------
@@ -1520,13 +1527,14 @@ function pickerView(){
       <div class="scrollchips">${["All",...MUSCLES,"Other"].filter(m => m!=="Other" || state.custom.some(c=>c.m==="Other")).map(m=>`<button class="chip" data-act="pm" data-v="${m}" id="pm-${slug(m)}" aria-pressed="${p.m===m}">${m}</button>`).join("")}</div>
       <select id="pe" aria-label="Equipment"><option value="All">Any equipment</option>${eqUsed.map(e=>`<option value="${e}" ${p.e===e?"selected":""}>${EQ[e]}</option>`).join("")}</select></div>
     <div class="mb"><div class="inner" id="plist">${pickerList(list)}
-      <details style="padding:14px 0"><summary style="cursor:pointer;font-weight:700">Can't find it? Create a custom exercise</summary>
+      <div id="pmore">${exAskView()}
+      <details style="padding:14px 0"><summary style="cursor:pointer;font-weight:700">${exAskOn() ? "Or create it yourself" : "Can't find it? Create a custom exercise"}</summary>
         <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
           <input type="text" id="cxName" placeholder="Exercise name" maxlength="40" autocomplete="off" aria-label="Custom exercise name">
           <select id="cxM" aria-label="Muscle group">${MUSCLES.map(m=>`<option>${m}</option>`).join("")}</select>
           <select id="cxE" aria-label="Equipment">${Object.entries(EQ).map(([k,v])=>`<option value="${k}">${v}</option>`).join("")}</select>
           <select id="cxT" aria-label="Tracked by"><option value="reps">Weight and reps</option><option value="time">Time</option></select>
-          <button data-act="cxAdd" id="cxAdd">Create and select</button>${p.err?`<div class="err">${esc(p.err)}</div>`:""}</div></details></div></div>
+          <button data-act="cxAdd" id="cxAdd">Create and select</button>${p.err?`<div class="err">${esc(p.err)}</div>`:""}</div></details></div></div></div>
     <div class="mf"><button class="primary" style="width:100%" data-act="pickDone" id="pickDone" ${p.sel.length?"":"disabled"}>${p.target==="swap"?(p.sel.length?`Swap to ${esc(exById(p.sel[p.sel.length-1]).n)}`:"Tap an exercise to swap to"):p.sel.length?(p.target==="avoid"?`Never suggest ${plural(p.sel.length,"exercise")}`:`Add ${plural(p.sel.length,"exercise")}`):"Tap exercises to select them"}</button></div>
   </div>`;
 }
@@ -1951,6 +1959,87 @@ function libText(){
 }
 function aiSystem(){ return [{ type:"text", text:`${AI_RULES}\n\nExercise library, by muscle:\n${libText()}`, cache_control:{ type:"ephemeral" } }]; }
 
+// ---------- ask Claude for an exercise (in the exercise picker) ----------
+// Claude checks the library first, so one lift doesn't end up in it twice (RDL and Romanian Deadlift would split its
+// history). A real exercise that isn't there becomes a custom exercise with its movement pattern, rest class and a form
+// tip, so swap suggestions, rest times and form tips work for it like they do for built-in ones.
+const PAT_WORDS = { squat:"squats and leg presses", lunge:"lunges, split squats and step-ups", hinge:"Romanian deadlifts, good mornings and swings", dead:"deadlifts and rack pulls",
+  thrust:"hip thrusts and glute bridges", abduct:"hip abduction", gkick:"glute kickbacks", legcurl:"leg curls", legext:"leg extensions", calf:"calf and tibialis raises", backext:"back extensions",
+  hpush:"bench and chest presses and push-ups", vpush:"overhead presses", fly:"chest flys", dip:"dips", pullover:"pullovers", vpull:"pulldowns and pull-ups", hpull:"rows",
+  lat:"lateral raises and upright rows", front:"front raises", rear:"rear-delt and rotator-cuff work", shrug:"shrugs", curl:"biceps curls", hammer:"hammer and reverse curls",
+  tri:"triceps extensions and pushdowns", wrist:"wrist work", crunch:"crunches and sit-ups", legraise:"leg and knee raises", anti:"planks and anti-rotation", rotate:"twists and chops",
+  carry:"carries, holds and hangs", oly:"cleans, snatches, jerks and thrusters" };
+const PAT_KEYS = PATTERNS.map(([k]) => k);
+const KLASS_WORD = { heavy:"big compound", comp:"compound", iso:"isolation", time:"timed" };
+const EXQ_SCHEMA = { type:"object", additionalProperties:false, required:["reply", "matches", "create"], properties:{
+  reply:{ type:"string" },
+  matches:{ type:"array", items:{ type:"object", additionalProperties:false, required:["exercise", "why"], properties:{ exercise:{ type:"string" }, why:{ type:"string" } } } },
+  create:{ anyOf:[{ type:"object", additionalProperties:false, required:["name", "muscle", "equipment", "timed", "pattern", "kind", "tip"], properties:{
+    name:{ type:"string" }, muscle:{ type:"string", enum:MUSCLES }, equipment:{ type:"string", enum:Object.keys(EQ) }, timed:{ type:"boolean" },
+    pattern:{ type:"string", enum:PAT_KEYS.concat("other") }, kind:{ type:"string", enum:["heavy", "comp", "iso"] }, tip:{ type:"string" } } }, { type:"null" }] } } };
+const exAskOn = () => !!aiKey && !!picker && picker.target !== "avoid";
+const exAskLabel = () => { const q = picker ? picker.q.trim() : ""; return q ? `🤖 Ask Claude about “${q.length > 32 ? q.slice(0, 31) + "…" : q}”` : "🤖 Type above, then ask Claude"; };
+const showAsk = () => { const el = document.getElementById("exAsk"); if (el) el.scrollIntoView({ block:"nearest" }); };
+function exAskView(){
+  if (!exAskOn()) return "";
+  const a = picker.ai || {}, on = id => picker.sel.includes(id);
+  let out = "";
+  if (a.busy) out = `<p class="hint" role="status"><b>Claude is checking the library<span class="pulse">…</span></b> Usually 10–20 seconds.</p>`;
+  else if (a.err) out = `<div class="err">${esc(a.err)}</div>`;
+  else if (a.done){
+    const rows = a.matches.map(m => `<button class="exrow" data-act="pToggle" data-id="${m.x.id}" id="pxa-${m.x.id}" aria-pressed="${on(m.x.id)}"><span class="n">${esc(m.x.n)}</span><span class="m">${esc(m.x.m)} · ${EQ[m.x.e] || ""}${m.why ? ` · ${esc(m.why)}` : ""}</span><span class="box">${on(m.x.id) ? picker.sel.indexOf(m.x.id) + 1 : ""}</span></button>`).join("");
+    const c = a.create;
+    out = (a.reply ? `<p class="exareply">${esc(a.reply)}</p>` : "") + (rows ? `<div>${rows}</div>` : "")
+      + (c ? `<div class="exnew"><span class="n">${esc(c.n)}</span><span class="m">${esc(c.m)} · ${EQ[c.e]} · ${KLASS_WORD[klass(c)]}</span>${c.tip ? `<span class="hint">${esc(c.tip)}</span>` : ""}
+        ${a.added ? `<div class="ok">Added to your exercises and selected.</div>` : `<button class="primary" data-act="exAdd" id="exAdd">Add and select it</button>`}</div>` : "")
+      + (!rows && !c ? `<p class="hint">Nothing fit. Try another name, or create it yourself below.</p>` : "");
+  }
+  return `<div class="exask" id="exAsk"><b>Can't find it?</b>
+    <button data-act="exAsk" id="exAskBtn" ${a.busy || !picker.q.trim() ? "disabled" : ""}>${a.busy ? "Asking Claude…" : esc(exAskLabel())}</button>
+    ${out || `<p class="hint">Claude checks the library first, so you won't end up with the same exercise twice. You can also describe what you're after, like “upper chest with dumbbells.”</p>`}</div>`;
+}
+function exAskTask(q){
+  const sw = picker.target === "swap" && swap && state.active && state.active.items[swap.x];
+  return `${nowText()}\n${goalsText()}\n\nTask: they're adding an exercise ${sw ? `in place of ${exById(sw.ex).n}` : picker.target === "day" ? "to a day in their program" : "to today's workout"} and couldn't find this in the library: "${q.slice(0, 120)}".
+- If it's already in the library under another name or spelling (for example RDL for Romanian Deadlift), put that exercise in "matches", spelled exactly as listed, and set "create" to null.
+- If they described what they want rather than naming an exercise, put up to 3 library exercises that fit best for their goals and equipment in "matches", best first. Only create one if nothing in the library fits.
+- If it's a real exercise that isn't in the library, describe it in "create": its usual name (at most 40 characters), the main muscle, the equipment code, whether it's tracked by time instead of reps, its movement pattern, whether it's a big compound lift (rested 2–3 minutes), another compound or an isolation move, and one form tip of at most 30 words. You can also put up to 2 close library alternatives in "matches".
+- Each match gets a "why" of at most 10 words. "reply" is one short sentence for them: the name it's under in the library, what fits, or what you'd add.
+Movement patterns: ${Object.entries(PAT_WORDS).map(([k, v]) => `${k} (${v})`).join(", ")}, other (anything else, like cardio or mobility).`;
+}
+function cleanExAsk(r){
+  const seen = new Set(), matches = [], one = s => String(s == null ? "" : s).replace(/\s+/g, " ").trim(), low = s => one(s).toLowerCase();
+  (Array.isArray(r && r.matches) ? r.matches : []).slice(0, 4).forEach(m => {
+    const x = findEx(m && m.exercise); if (!x || seen.has(x.id)) return;
+    seen.add(x.id); matches.push({ x, why:one(m.why).slice(0, 80) });
+  });
+  let create = null; const c = r && r.create;
+  if (c && typeof c === "object"){
+    const n = one(c.name).slice(0, 40), have = findEx(n);
+    if (have){ if (!seen.has(have.id)) matches.unshift({ x:have, why:"already in your library" }); }
+    else if (n){
+      const e = one(c.equipment).toUpperCase(), p = low(c.pattern), k = low(c.kind);
+      create = { n, m:MUSCLES.find(x => x.toLowerCase() === low(c.muscle)) || "Other", e:EQ[e] ? e : "OT", t:c.timed === true ? "time" : "reps",
+        p:PAT_KEYS.includes(p) ? p : "other", k:["heavy", "comp", "iso"].includes(k) ? k : "comp", tip:one(c.tip).slice(0, 220) };
+    }
+  }
+  return { reply:one(r && r.reply).slice(0, 200), matches, create };
+}
+function selectEx(p, id){ if (p.target === "swap") p.sel = [id]; else if (!p.sel.includes(id)) p.sel.push(id); }
+async function exAsk(){
+  const p = picker; if (!p || !exAskOn() || (p.ai && p.ai.busy)) return;
+  const q = p.q.trim(); if (!q) return;
+  p.ai = { q, busy:true }; render(); showAsk();
+  try{
+    const r = await askClaude({ system:aiSystem(), content:exAskTask(q), schema:EXQ_SCHEMA, effort:"low" });
+    if (picker !== p) return;
+    p.ai = { q, done:true, ...cleanExAsk(r) };
+    // one clear answer to a name they typed: select it
+    if (!p.ai.create && p.ai.matches.length === 1) selectEx(p, p.ai.matches[0].x.id);
+  }catch(e){ if (picker === p) p.ai = { q, err:aiFail(e) }; }
+  if (picker === p){ render(); showAsk(); }
+}
+
 // what Claude is told about the person: goals, where they are in the block, the program and recent workouts
 const enDate = t => new Date(t).toLocaleDateString("en-US", { weekday:"short", month:"short", day:"numeric" });
 function nowText(){ const d = new Date(); return `Today is ${d.toLocaleDateString("en-US", { weekday:"long", month:"long", day:"numeric", year:"numeric" })}, ${d.toLocaleTimeString("en-US", { hour:"numeric", minute:"2-digit" })}.`; }
@@ -2080,7 +2169,7 @@ function coachApply(){
   coach = null; save(); render(); window.scrollTo(0, 0);
 }
 function coachCard(){
-  if (!aiKey) return state.aiHide ? "" : `<div class="panel" style="gap:8px" id="coachCard"><b>🤖 Claude coach</b><span class="hint">Add your own Claude API key and you can tell a coach how today is going (short on time, something sore, a packed gym) and it adjusts the workout from your history. It can also plan your next block and log a workout from a photo.</span>
+  if (!aiKey) return state.aiHide ? "" : `<div class="panel" style="gap:8px" id="coachCard"><b>🤖 Claude coach</b><span class="hint">Add your own Claude API key and you can tell a coach how today is going (short on time, something sore, a packed gym) and it adjusts the workout from your history. It can also plan your next block, log a workout from a photo, and find or add exercises you can't find in the list.</span>
     <div class="btnrow"><button class="small" data-act="aiSetup" id="aiSetupC">Set it up</button><button class="small ghost" data-act="aiHide" id="aiHide">Not now</button></div></div>`;
   return `<div class="panel" style="gap:8px" id="coachCard"><b>🤖 Ask the coach</b><span class="hint">Short on time, something sore, the gym packed, or just want a change? Tell the coach and it adjusts today's workout from your history and goals.</span>
     <div class="btnrow"><button class="small" data-act="coOpen" id="coOpen">🤖 Ask the coach</button><button class="small" data-act="plOpen" id="plOpen">📷 Log from a photo</button></div></div>`;
@@ -2313,7 +2402,7 @@ function aiTestNow(prefix){
 }
 function aiPanel(){
   return `<div class="panel" id="aiPanel"><h2>🤖 Claude coach</h2>
-    <p class="hint">Optional. With your own Claude API key you can ask a coach to adjust a workout to how your day is going, have Claude plan your next block from your results, and log a workout from a photo of a whiteboard, notebook or screenshot. Everything else works without it.</p>
+    <p class="hint">Optional. With your own Claude API key you can ask a coach to adjust a workout to how your day is going, have Claude plan your next block from your results, log a workout from a photo of a whiteboard, notebook or screenshot, and ask Claude about an exercise you can't find when adding one. Everything else works without it.</p>
     <div class="gfield"><label class="gl" for="aiKeyIn">Claude API key</label>
       <textarea id="aiKeyIn" class="aikey" rows="4" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Paste your key here">${esc(aiDraft != null ? aiDraft : aiKey)}</textarea>
       <p class="hint">Shown in full so you can check it against your notes.</p></div>
@@ -2469,8 +2558,15 @@ document.addEventListener("click", e => {
     case "pick": picker = { target:b.dataset.target, d, q:"", m:"All", e:"All", sel:[] }; render(); break;
     case "pickClose": picker = null; render(); break;
     case "pm": picker.m = b.dataset.v; render(); break;
-    case "pToggle": { const id = b.dataset.id, k = picker.sel.indexOf(id); if (picker.target === "swap"){ picker.sel = k >= 0 ? [] : [id]; render(); break; } if (k >= 0) picker.sel.splice(k,1); else picker.sel.push(id);
-      const l = document.getElementById("plist"); render(); break; }
+    case "pToggle": { const id = b.dataset.id, k = picker.sel.indexOf(id), inAsk = !!b.closest("#exAsk"); if (picker.target === "swap"){ picker.sel = k >= 0 ? [] : [id]; render(); if (inAsk) showAsk(); break; } if (k >= 0) picker.sel.splice(k,1); else picker.sel.push(id);
+      render(); if (inAsk) showAsk(); break; }
+    case "exAsk": exAsk(); break;
+    case "exAdd": {
+      const a = picker && picker.ai, c = a && a.create; if (!c || a.added) break;
+      const have = findEx(c.n), id = have ? have.id : "c-" + slug(c.n) + "-" + uid().slice(-4);
+      if (!have) state.custom.push({ id, ...c });
+      selectEx(picker, id); a.added = id; save(); render(); showAsk(); break;
+    }
     case "cxAdd": {
       const n = document.getElementById("cxName").value.trim();
       if (!n){ picker.err = "Give it a name."; render(); break; }
@@ -2586,8 +2682,10 @@ function rerenderList(){
   if (p.m !== "All") list = list.filter(x => x.m === p.m);
   if (p.e !== "All") list = list.filter(x => x.e === p.e);
   if (q) list = list.filter(x => (x.n + " " + x.m + " " + (EQ[x.e]||"")).toLowerCase().includes(q));
-  const box = document.getElementById("plist"), det = box.querySelector("details");
-  box.innerHTML = pickerList(list); if (det) box.appendChild(det);
+  const box = document.getElementById("plist"), more = document.getElementById("pmore");
+  box.innerHTML = pickerList(list); if (more) box.appendChild(more);
+  const ab = document.getElementById("exAskBtn");
+  if (ab && !(p.ai && p.ai.busy)){ ab.textContent = exAskLabel(); ab.disabled = !p.q.trim(); }
 }
 document.addEventListener("change", e => {
   const t = e.target;
