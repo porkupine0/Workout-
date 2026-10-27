@@ -789,6 +789,8 @@ async function addPhoto(file, pose){
   }catch(e){ showToast(esc((e && e.message) || "That photo couldn't be saved.")); render(); }
 }
 // the analysis runs on the phone (body-scan.js and its pose model, kept for offline use); nothing is uploaded
+// bump when body-scan.js measures differently: photos measured by an older version are measured again on this phone
+const SCAN_V = 2;
 const busy = new Set();
 let scanMod = null;
 function scanner(){ return scanMod || (scanMod = import("./body-scan.js").then(async m => { await m.ready(); return m; }).catch(e => { scanMod = null; throw e; })); }
@@ -798,13 +800,13 @@ async function analyzePhoto(p){
     const [m, rec] = await Promise.all([scanner(), idbGet(p.id)]);
     const img = await blobImage(rec.full), r = await m.analyze(img, p.pose);
     URL.revokeObjectURL(img.src);
-    p.a = { ok:!!r.ok, reason:r.reason || null, poseGuess:r.poseGuess || null, lm:r.lm || null, torso:r.torso || null, m:r.m || {}, lines:r.lines || {}, flags:r.flags || [], quality:r.quality != null ? r.quality : null, at:Date.now() };
+    p.a = { ok:!!r.ok, reason:r.reason || null, poseGuess:r.poseGuess || null, lm:r.lm || null, torso:r.torso || null, m:r.m || {}, lines:r.lines || {}, flags:r.flags || [], quality:r.quality != null ? r.quality : null, at:Date.now(), v:SCAN_V };
     delete p.err; if (pcache[p.id]) delete pcache[p.id].lined;
   }catch(e){ p.err = navigator.onLine === false ? "offline" : String((e && e.message) || "failed").slice(0, 160); }
   busy.delete(p.id); save(); render();
 }
 // measures photos still waiting, one at a time; ones that already failed are retried only when asked (app start, back online)
-function analyzeWaiting(retry){ if (navigator.onLine === false) return; const p = photos().find(q => !q.a && !busy.has(q.id) && (retry || !q.err)); if (p) analyzePhoto(p).then(() => setTimeout(() => analyzeWaiting(false), 300)); }
+function analyzeWaiting(retry){ if (navigator.onLine === false) return; const p = photos().find(q => (!q.a || (q.a.v || 1) < SCAN_V) && !busy.has(q.id) && (retry || !q.err)); if (p) analyzePhoto(p).then(() => setTimeout(() => analyzeWaiting(false), 300)); }
 const METRICS = {
   front:[["taper","Shoulders ÷ waist", 1], ["shoulder","Shoulder width", 1], ["waist","Waist width", -1], ["hip","Hip width", 0]],
   back:[["taper","Back ÷ waist", 1], ["shoulder","Upper-back width", 1], ["waist","Waist width", -1], ["hip","Hip width", 0]],

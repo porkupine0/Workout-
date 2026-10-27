@@ -251,7 +251,8 @@ export function measure(mask, width, height, lmPx, pose) {
   } else {
     const sh = take('shoulder', choose(band('shoulder'), 'max', F.T, true));
     take('waist', choose(band('waist'), 'min', F.T));
-    const hp = take('hip', choose(band('hip'), 'max', F.T));
+    const hipJoints = Math.abs(F.ts(lmPx.lh)[1] - F.ts(lmPx.rh)[1]);
+    const hp = take('hip', choose(band('hip').map(x => x && hipJoints && x.w > HIP_MAX * hipJoints ? { ...x, arm: true } : x), 'max', F.T));
     if (m.shoulder && m.waist) m.taper = round(m.shoulder / m.waist);
     if (m.waist && m.hip) m.waistHip = round(m.waist / m.hip);
     if (isTurned(F, lmPx, [sh, hp])) flags.push('turned');
@@ -286,8 +287,16 @@ function sampler(mask, w, h) {
 }
 
 const STEP = .5;   // px between samples along a measuring line
+// Where the outline ends. The segmenter is ~1.0 on the body with crisp edges, but only 0.4-0.7 on dark background
+// trapped between an arm and the torso (or a hand and the hip), so a 0.5 cut-off added those gaps to waist and hip.
+const EDGE = .75;
+// A hand hangs past the index-finger landmark (the knuckle area): extend each arm this far beyond it, as a share of
+// wrist-to-index, so lines through the fingers count as touching an arm.
+const FINGERS = .9;
+// Hip outline wider than this many times the hip-joint spacing: a hand or forearm is in it (real hips run ~1.6-2.0x).
+const HIP_MAX = 2.3;
 
-// The run of body pixels (mask >= .5) across the body at depth t that contains offset s0 (default: the midline).
+// The run of body pixels (mask >= EDGE) across the body at depth t that contains offset s0 (default: the midline).
 // Edges are sub-pixel (interpolated where the mask crosses .5). null if s0 isn't on the body; cut: true when the
 // run reaches the photo edge or 1.2 torso lengths (arms held out, something touching).
 function runAt(F, get, w, h, t, s0 = 0) {
@@ -300,8 +309,8 @@ function runAt(F, get, w, h, t, s0 = 0) {
     while (Math.abs(s - s0) < 1.2 * F.T) {
       s += dir * STEP;
       const v = val(s);
-      if (v < .5) {
-        const e = s - dir * STEP * (1 - (prev - .5) / (prev - v)), x = ox + nx * e, y = oy + ny * e;
+      if (v < EDGE) {
+        const e = s - dir * STEP * (1 - (prev - EDGE) / (prev - v)), x = ox + nx * e, y = oy + ny * e;
         if (x < 1 || y < 1 || x > w - 1 || y > h - 1) cut = true;
         return e;
       }
@@ -317,7 +326,11 @@ function runAt(F, get, w, h, t, s0 = 0) {
 // Where each arm (shoulder > elbow > wrist > index finger) crosses the measuring line at depth t: offset s of its
 // centre line, and k = how much wider than the arm itself the crossing is (1 when the arm is square to the line).
 function armCrossings(F, L) {
-  const chains = [['ls', 'le', 'lw', 'li'], ['rs', 're', 'rw', 'ri']].map(c => c.filter(k => L[k]).map(k => F.ts(L[k])));
+  const chains = [['ls', 'le', 'lw', 'li'], ['rs', 're', 'rw', 'ri']].map(c => {
+    const pts = c.filter(k => L[k]).map(k => F.ts(L[k])), [w, i] = [L[c[2]], L[c[3]]];
+    if (w && i) pts.push(F.ts([i[0] + (i[0] - w[0]) * FINGERS, i[1] + (i[1] - w[1]) * FINGERS]));   // fingertips
+    return pts;
+  });
   return t => chains.flatMap(pts => pts.slice(1).flatMap((b, i) => {
     const a = pts[i], dt = (b[0] - a[0]) * F.T, ds = b[1] - a[1];
     if ((a[0] - t) * (b[0] - t) > 0 || !dt) return [];
