@@ -230,6 +230,13 @@ table.st th:first-child,table.st td:first-child{text-align:left;white-space:norm
 .bnum{font-family:"Barlow Condensed",sans-serif;font-size:34px;font-weight:800;line-height:1}
 .bin{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center}
 .bin input{font-size:18px;font-weight:700;text-align:center}
+.bdate{display:flex;gap:6px;align-items:center}
+.bdate input{flex:1;min-width:0;font-size:16px}
+.bdate .chip{flex:none;padding:7px 10px}
+.bdate .chip[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.wlist{display:flex;flex-direction:column}
+.wrow{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)}
+.wrow:last-child{border-bottom:0}
 .pgal{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 .pth{width:100%;aspect-ratio:3/4;object-fit:cover;border-radius:10px;background:var(--surface-2);display:block}
 .pslot{display:flex;flex-direction:column;gap:6px;align-items:stretch;text-align:center;font-size:13px;font-weight:700}
@@ -488,6 +495,7 @@ const fresh = () => ({ v:1, units:"lb", days:[], custom:[], sessions:[], active:
 let state = load() || fresh();
 const TAGS = { W:"warm-up", D:"drop set", F:"to failure" };
 let swap = null, review = null, goalsOpen = null, pastOpen = false, restoreOpen = false, restoreText = "";
+let bwDay = null;   // the day a weigh-in is being logged for; null = today (so a missed morning can go on its own date)
 let ready = null, shoot = false, viewPhoto = null, cmp = { pose:"front", a:null, b:null, split:50 }, offlineReady = false;
 let cardioUI = null, cdEditOpen = false, calOpen = false, calOffer = null;
 let picker = null, toast = null, toastT = null, summary = null, confirmKey = null, confirmTimer = null, backupBox = null, progressEx = null;
@@ -693,6 +701,8 @@ const LB = 2.20462;
 const lenUnit = () => U() === "kg" ? "cm" : "in";
 const entry = k => blog()[k] || (blog()[k] = {});
 function tidy(k){ const e = blog()[k]; if (e && e.w == null && e.waist == null && !e.p) delete blog()[k]; }
+const bwKey = () => { const t = dkey(Date.now()); return bwDay && bwDay < t ? bwDay : t; };
+const daysAgo = k => Math.round((dayOf(dkey(Date.now())) - dayOf(k)) / dayMs);
 function latest(field){ const k = Object.keys(blog()).filter(k => blog()[k][field] != null).sort().pop(); return k ? { k, v:blog()[k][field] } : null; }
 // average of a value over the 7 days ending on day t
 function week7(field, t){ const v = []; for (let i = 0; i < 7; i++){ const e = blog()[dkey(addDays(t, -i))]; if (e && e[field] != null) v.push(e[field]); } return v.length ? avg(v) : null; }
@@ -868,14 +878,17 @@ function afterRender(){
 function askPersist(){ try{ if (!state.persistAsked && navigator.storage && navigator.storage.persist){ state.persistAsked = true; save(); navigator.storage.persist(); } }catch(e){} }
 
 function bodyView(){
-  const k = dkey(Date.now()), e = blog()[k] || {}, lw = latest("w"), lwa = latest("waist"), goal = proteinGoal(), p = e.p || 0, adv = weightAdvice(), wn = waistNote();
+  const k = dkey(Date.now()), e = blog()[k] || {}, wk = bwKey(), we = blog()[wk] || {}, past = wk !== k, yk = dkey(addDays(Date.now(), -1)), lw = latest("w"), lwa = latest("waist"), goal = proteinGoal(), p = e.p || 0, adv = weightAdvice(), wn = waistNote();
   const avgNow = week7("w", Date.now()), avgThen = week7("w", addDays(Date.now(), -7)), t = weightTrend();
   const last7 = Array.from({ length:7 }, (_, i) => { const d = addDays(Date.now(), i - 6), x = blog()[dkey(d)] || {}; return { d, p:x.p || 0 }; });
   const hits = goal ? last7.filter(x => x.p >= goal).length : 0;
   const todayCard = `<div class="panel"><div class="row"><h2 class="grow">Today</h2><span class="hint">${fmtDate(Date.now())}</span></div>
-    <div class="gfield"><span class="gl">Bodyweight</span><div class="bin"><input type="text" inputmode="decimal" id="bwIn" placeholder="${lw ? lw.v : U()}" value="${e.w != null ? e.w : ""}" autocomplete="off" aria-label="Bodyweight in ${U()}"><button data-act="bwSave" id="bwSave">${e.w != null ? "Update" : "Save"}</button></div>
+    <div class="gfield"><span class="gl">Weigh-in date</span>
+      <div class="bdate"><input type="date" id="bwDate" max="${k}" value="${wk}" aria-label="Date you weighed in"><button class="chip" data-act="bwDay" data-v="" aria-pressed="${!past}">Today</button><button class="chip" data-act="bwDay" data-v="${yk}" aria-pressed="${wk === yk}">Yesterday</button></div>
+      ${lw && lw.k < k && !past ? `<p class="hint">Last weigh-in: ${fmtDate(dayOf(lw.k))} (${daysAgo(lw.k) === 1 ? "yesterday" : `${daysAgo(lw.k)} days ago`}). Missed a morning? Pick that date and log it there.</p>` : ""}</div>
+    <div class="gfield"><span class="gl">Bodyweight${past ? ` <span class="hint" style="font-weight:400">for ${fmtDate(dayOf(wk))}</span>` : ""}</span><div class="bin"><input type="text" inputmode="decimal" id="bwIn" placeholder="${lw ? lw.v : U()}" value="${we.w != null ? we.w : ""}" autocomplete="off" aria-label="Bodyweight in ${U()}"><button data-act="bwSave" id="bwSave">${we.w != null ? "Update" : "Save"}</button></div>
       <p class="hint">Each morning after the bathroom, before eating. The weekly average is what counts, not any one day.</p></div>
-    <div class="gfield"><span class="gl">Waist <span class="hint" style="font-weight:400">(${lenUnit()}, optional)</span></span><div class="bin"><input type="text" inputmode="decimal" id="waistIn" placeholder="${lwa ? lwa.v : lenUnit()}" value="${e.waist != null ? e.waist : ""}" autocomplete="off" aria-label="Waist in ${lenUnit()}"><button data-act="waistSave" id="waistSave">${e.waist != null ? "Update" : "Save"}</button></div>
+    <div class="gfield"><span class="gl">Waist <span class="hint" style="font-weight:400">(${lenUnit()}, optional)</span></span><div class="bin"><input type="text" inputmode="decimal" id="waistIn" placeholder="${lwa ? lwa.v : lenUnit()}" value="${we.waist != null ? we.waist : ""}" autocomplete="off" aria-label="Waist in ${lenUnit()}"><button data-act="waistSave" id="waistSave">${we.waist != null ? "Update" : "Save"}</button></div>
       <p class="hint">Once a week, around your belly button, relaxed. When your weight goes up, it tells muscle from fat.</p></div>
     <div class="gfield"><div class="row"><span class="gl grow">Protein</span><span class="num"><b>${p}</b>${goal ? ` / ${goal}` : ""} g</span></div>
       ${goal ? `<div class="pbar"><span style="width:${Math.min(100, p / goal * 100)}%;${p >= goal ? "background:var(--good)" : ""}"></span></div>` : ""}
@@ -889,7 +902,12 @@ function bodyView(){
     ${wn ? `<p class="hint">📏 ${esc(wn)}</p>` : ""}
     ${goal ? `<div class="row" style="gap:6px;align-items:flex-end">${last7.map(x => `<span style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px"><span style="width:100%;height:${8 + Math.min(1, x.p / goal) * 40}px;border-radius:4px;background:${x.p >= goal ? "var(--good)" : x.p ? "var(--accent)" : "var(--surface-2)"}" title="${fmtDate(x.d)}: ${x.p} g"></span><span class="hint" style="font-size:11px">${new Date(x.d).toLocaleDateString(undefined,{weekday:"narrow"})}</span></span>`).join("")}</div>
       <p class="hint">Protein goal hit on ${hits} of the last 7 days.</p>` : ""}</div>`;
-  return todayCard + trend + photosPanel();
+  const logged = Object.keys(blog()).filter(x => blog()[x].w != null || blog()[x].waist != null).sort().reverse().slice(0, 14);
+  const history = logged.length ? `<div class="panel"><h3>Weigh-ins</h3>
+    <div class="wlist">${logged.map(x => { const v = blog()[x]; return `<div class="wrow"><span class="grow">${fmtDate(dayOf(x))}</span><span class="num"><b>${v.w != null ? v.w : "–"}</b> ${v.w != null ? U() : ""}${v.waist != null ? ` · ${v.waist} ${lenUnit()}` : ""}</span>
+      <button class="small" data-act="bwEdit" data-k="${x}">Edit</button><button class="small danger" data-act="bwDel" data-k="${x}">${confirmKey === "bwdel:" + x ? "Tap again" : "✕"}</button></div>`; }).join("")}</div>
+    <p class="hint">Each weigh-in counts on the day it's dated, so gaps don't skew your averages or trend.</p></div>` : "";
+  return todayCard + trend + history + photosPanel();
 }
 function photosPanel(){
   const pd = photosDue(), list = checkins(), today = dkey(Date.now()), todays = photos().filter(p => dkey(p.at) === today);
@@ -2459,9 +2477,12 @@ document.addEventListener("click", e => {
     case "addWU": { const it = state.active.items[x], ex = exById(it.ex), work = it.sets.find(q => q.tag !== "W"), ws = warmupSets(ex, num(work && work.w) || 0);
       it.sets.unshift(...ws.map(q => ({ w:String(q.w), r:String(q.r), done:false, tag:"W" }))); it.wu = true; save(); render(); break; }
     // body
-    case "bwSave": case "waistSave": { const isW = act === "bwSave", el = document.getElementById(isW ? "bwIn" : "waistIn"), v = num(el ? el.value : ""), k = dkey(Date.now());
+    case "bwSave": case "waistSave": { const isW = act === "bwSave", el = document.getElementById(isW ? "bwIn" : "waistIn"), v = num(el ? el.value : ""), k = bwKey(), when = k === dkey(Date.now()) ? "" : ` for ${fmtDate(dayOf(k))}`;
       if (v == null || v <= 0){ showToast(isW ? "Enter your weight first." : "Enter your waist first."); render(); break; }
-      entry(k)[isW ? "w" : "waist"] = Math.round(v * 10) / 10; save(); askPersist(); showToast(isW ? `Saved ${Math.round(v * 10) / 10} ${U()}.` : `Saved waist ${Math.round(v * 10) / 10} ${lenUnit()}.`); render(); break; }
+      entry(k)[isW ? "w" : "waist"] = Math.round(v * 10) / 10; save(); askPersist(); showToast(isW ? `Saved ${Math.round(v * 10) / 10} ${U()}${when}.` : `Saved waist ${Math.round(v * 10) / 10} ${lenUnit()}${when}.`); bwDay = null; render(); break; }
+    case "bwDay": bwDay = b.dataset.v || null; render(); break;
+    case "bwEdit": { const k = b.dataset.k; bwDay = k === dkey(Date.now()) ? null : k; render(); window.scrollTo({ top:0, behavior:"smooth" }); setTimeout(() => { const el = document.getElementById("bwIn"); if (el) el.focus(); }, 300); break; }
+    case "bwDel": { const k = b.dataset.k; confirmThen("bwdel:" + k, () => { const e2 = blog()[k]; if (e2){ delete e2.w; delete e2.waist; tidy(k); } if (bwDay === k) bwDay = null; save(); showToast(`Removed the weigh-in for ${fmtDate(dayOf(k))}.`); render(); }); break; }
     case "pAdd": { const k = dkey(Date.now()), e2 = entry(k); e2.p = Math.max(0, (e2.p || 0) + (+b.dataset.v)); tidy(k); save(); render(); break; }
     case "phShoot": shoot = true; render(); break;
     case "goPhotos": state.tab = "body"; shoot = true; summary = null; save(); render(); setTimeout(() => { const el = document.getElementById("photosPanel"); if (el) el.scrollIntoView({ behavior:"smooth" }); }, 50); break;
@@ -2693,6 +2714,7 @@ document.addEventListener("change", e => {
   if (t.id === "cmpA" || t.id === "cmpB"){ cmp[t.id === "cmpA" ? "a" : "b"] = t.value; render(); return; }
   if (e.target.id === "pe" && picker){ picker.e = e.target.value; render(); }
   if (e.target.id === "progressEx"){ progressEx = e.target.value; render(); }
+  if (t.id === "bwDate"){ const v = t.value, today = dkey(Date.now()); bwDay = /^\d{4}-\d{2}-\d{2}$/.test(v) && v < today ? v : null; render(); return; }
   if (t.id === "calTime" && /^\d{2}:\d{2}$/.test(t.value)){ state.cal = { ...calNow(), time:t.value }; save(); render(); }
 });
 document.addEventListener("keydown", e => {
