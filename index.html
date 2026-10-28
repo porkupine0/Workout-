@@ -135,6 +135,10 @@ textarea{min-height:90px;resize:vertical;font-size:13px}
 .timer .tb button{background:transparent;color:var(--bg);border-color:rgba(255,255,255,.3);padding:8px 10px;font-size:14px}
 .timer.over{background:var(--good)}
 .timer.over .bar span{background:#fff}
+.timer.slim{padding-top:8px;padding-bottom:calc(8px + env(safe-area-inset-bottom,0px))}
+.timer.slim .big{font-size:28px;min-width:72px}
+.timer.pop .in{animation:dockUp .22s ease-out}
+@keyframes dockUp{from{transform:translateY(40px);opacity:0}to{transform:none;opacity:1}}
 
 /* program editor */
 .pitem{display:flex;flex-direction:column;gap:8px;padding:10px 0;border-bottom:1px solid var(--line)}
@@ -265,6 +269,7 @@ input[type=date]{font:inherit;width:100%;max-width:220px;min-height:44px;padding
 <body>
 
 <div class="wrap" id="app"></div>
+<div id="dock" hidden></div>
 
 <script>
 const KEY = "iron-log-v1";
@@ -531,9 +536,9 @@ function confirmThen(key, fn){
   if (confirmKey === key){ clearTimeout(confirmTimer); confirmKey = null; fn(); return; }
   confirmKey = key; render();
   clearTimeout(confirmTimer);
-  confirmTimer = setTimeout(()=>{ confirmKey = null; render(); }, 3500);
+  confirmTimer = setTimeout(()=>{ confirmKey = null; softRender(); }, 3500);
 }
-function showToast(msg){ toast = msg; clearTimeout(toastT); toastT = setTimeout(()=>{ toast = null; render(); }, 2600); }
+function showToast(msg){ toast = msg; clearTimeout(toastT); toastT = setTimeout(()=>{ toast = null; const el = document.querySelector(".toast"); if (el) el.remove(); }, 2600); }
 
 // ---------- history helpers ----------
 function lastPerf(exId){
@@ -1168,23 +1173,33 @@ function beep(){
   try{ navigator.vibrate && navigator.vibrate([200,100,200]); }catch(e){}
 }
 function startTimer(sec, label){ state.timer = { end: Date.now() + sec*1000, total: sec, label, rang:false }; save(); }
+// the timer only redraws its own bar, never the page, so it can't pull a box you're typing in out from under you
 setInterval(() => {
-  const tm = state.timer; if (!tm) return;
-  const left = (tm.end - Date.now())/1000;
-  if (left <= 0 && !tm.rang){ tm.rang = true; tm.overAt = Date.now(); save(); beep(); render(); return; }
-  if (tm.rang && Date.now() - tm.overAt > 8000){ state.timer = null; save(); render(); return; }
-  const b = document.getElementById("tmrBig"); if (b) b.textContent = left > 0 ? fmtTime(left) : "GO";
-  const bar = document.getElementById("tmrBar"); if (bar) bar.style.width = `${Math.max(0, Math.min(100, (1 - left/tm.total) * 100))}%`;
-  const ck = document.getElementById("sessClock"); if (ck && state.active) ck.textContent = fmtTime((Date.now() - state.active.start)/1000);
+  const tm = state.timer, a = state.active, b = document.getElementById("tmrBig");
+  if (tm){
+    const left = (tm.end - Date.now())/1000;
+    if (left <= 0 && !tm.rang){ tm.rang = true; tm.overAt = Date.now(); save(); beep(); renderDock(); return; }
+    if (tm.rang && Date.now() - tm.overAt > 8000){ state.timer = null; save(); renderDock(); return; }
+    if (b) b.textContent = left > 0 ? fmtTime(left) : "GO";
+    const bar = document.getElementById("tmrBar"); if (bar) bar.style.width = `${Math.max(0, Math.min(100, (1 - left/tm.total) * 100))}%`;
+  } else if (a && b) b.textContent = fmtTime((Date.now() - (a.lastDone || a.start))/1000);
+  const ck = document.getElementById("sessClock"); if (ck && a) ck.textContent = fmtTime((Date.now() - a.start)/1000);
 }, 250);
-setInterval(() => { const ck = document.getElementById("sessClock"); if (ck && state.active && !state.timer) ck.textContent = fmtTime((Date.now() - state.active.start)/1000); }, 1000);
 
 let wakeLock = null;
 async function keepAwake(){ try{ if (state.active && "wakeLock" in navigator && document.visibilityState === "visible" && !wakeLock){ wakeLock = await navigator.wakeLock.request("screen"); wakeLock.addEventListener("release", ()=>{ wakeLock = null; }); } }catch(e){ wakeLock = null; } }
-document.addEventListener("visibilitychange", () => { keepAwake(); if (document.visibilityState === "visible") render(); });
+document.addEventListener("visibilitychange", () => { keepAwake(); if (document.visibilityState === "visible") softRender(); });
+
+// Updates nobody tapped for (a confirm timing out, coming back to the app) wait while you're typing in a box.
+// Redrawing the page swaps the box for a new one under the keyboard, and iOS then jumps to the bottom on every key.
+let renderLater = false;
+const typing = () => { const el = document.activeElement; return !!el && el.matches("input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]),textarea") && document.getElementById("app").contains(el); };
+function softRender(){ if (typing()) renderLater = true; else render(); }
+document.addEventListener("focusout", () => { if (renderLater) setTimeout(() => { if (renderLater && !typing()) render(); }, 0); });
 
 // ---------- views ----------
 function render(){
+  renderLater = false;
   const app = document.getElementById("app");
   const ae = document.activeElement, focusId = ae && ae.id, sel = ae && ae.selectionStart;
   const y = window.scrollY;
@@ -1194,21 +1209,36 @@ function render(){
     <div class="tabs" role="tablist">${tabs.map(([k,l])=>`<button class="tab" role="tab" id="tab-${k}" data-act="tab" data-v="${k}" aria-selected="${state.tab===k}">${l}</button>`).join("")}</div></div>` +
     (!saveOK ? `<div class="err">This browser isn't letting the app save right now (private browsing?). Your workout will be lost if you close it.</div>` : "") +
     (state.tab === "train" ? trainView() : state.tab === "body" ? bodyView() : state.tab === "program" ? programView() : state.tab === "history" ? historyView() : progressView()) +
-    timerView() + (picker ? pickerView() : "") + (swap && !picker ? swapView() : "") + (ready && !picker ? readyView() : "") + (cardioUI && !picker ? cardioView() : "") + (viewPhoto ? photoView() : "") + (coach && !picker ? coachView() : "") + (plog && !picker ? plogView() : "") + (toast ? `<div class="toast" role="status">${toast}</div>` : "");
+    (picker ? pickerView() : "") + (swap && !picker ? swapView() : "") + (ready && !picker ? readyView() : "") + (cardioUI && !picker ? cardioView() : "") + (viewPhoto ? photoView() : "") + (coach && !picker ? coachView() : "") + (plog && !picker ? plogView() : "") + (toast ? `<div class="toast" role="status">${toast}</div>` : "");
   if (keepLbl){ const k = document.querySelector(".modal.keep"); if (k && k.getAttribute("aria-label") === keepLbl) k.querySelector(".mb").scrollTop = keepTop; }
   if (focusId){ const el = document.getElementById(focusId); if (el && !picker || (el && picker && el.closest(".modal"))){ el.focus({preventScroll:true}); try{ if (sel != null) el.setSelectionRange(sel, sel); }catch(_){} } }
   if (!picker && !swap && !ready && !viewPhoto && !cardioUI && !coach && !plog) window.scrollTo(0, y);
+  renderDock();
   afterRender();
 }
 
-function timerView(){
-  const tm = state.timer; if (!tm) return "";
-  const left = (tm.end - Date.now())/1000, over = left <= 0;
-  return `<div class="timer ${over?"over":""}" role="timer" aria-live="off"><div class="in">
+// The bar along the bottom stays put for the whole workout: it shows the time since your last set,
+// and pops up into the rest countdown when a rest starts.
+let dockWasOpen = false;
+function renderDock(){
+  const el = document.getElementById("dock"), tm = state.timer, a = state.active;
+  el.hidden = !tm && !a; if (el.hidden){ el.innerHTML = ""; dockWasOpen = false; return; }
+  if (tm){
+    const left = (tm.end - Date.now())/1000, over = left <= 0;
+    el.className = `timer${over?" over":""}${dockWasOpen?"":" pop"}`; el.setAttribute("role", "timer"); el.setAttribute("aria-live", "off");
+    el.innerHTML = `<div class="in">
     <span class="big num" id="tmrBig">${over?"GO":fmtTime(left)}</span>
     <span><span class="lbl">${over?"Rest's up. Next set!":"Resting"}</span><br><b>${esc(tm.label||"")}</b></span>
     <span class="tb">${over?`<button data-act="tmrClose" id="tmrClose">Close</button>`:`<button data-act="tmrAdd" data-v="-15" id="tmrMinus">−15</button><button data-act="tmrAdd" data-v="15" id="tmrPlus">+15</button><button data-act="tmrClose" id="tmrSkip">Skip</button>`}</span>
-    <div class="bar"><span id="tmrBar" style="width:${Math.max(0,Math.min(100,(1-left/tm.total)*100))}%"></span></div></div></div>`;
+    <div class="bar"><span id="tmrBar" style="width:${Math.max(0,Math.min(100,(1-left/tm.total)*100))}%"></span></div></div>`;
+  } else {
+    el.className = "timer slim";
+    el.innerHTML = `<div class="in">
+    <span class="big num" id="tmrBig">${fmtTime((Date.now() - (a.lastDone || a.start))/1000)}</span>
+    <span><span class="lbl">${a.lastDone ? "Since your last set" : "Workout time"}</span><br><b>${esc(a.dayName || "Workout")}</b></span>
+    <span class="tb">${state.tab !== "train" ? `<button data-act="tab" data-v="train" id="dockBack">Workout</button>` : ""}<button data-act="dockRest" id="dockRest">⏱ Rest</button></span></div>`;
+  }
+  dockWasOpen = !!tm;
 }
 
 function upNextIdx(){
@@ -2513,8 +2543,10 @@ document.addEventListener("click", e => {
     case "finish": finishSession(); break;
     case "discard": confirmThen("discard", ()=>{ state.active = null; state.timer = null; save(); render(); }); break;
     case "closeSummary": summary = null; render(); break;
-    case "tmrAdd": if (state.timer){ state.timer.end += (+b.dataset.v)*1000; state.timer.total = Math.max(5, state.timer.total + (+b.dataset.v)); save(); render(); } break;
-    case "tmrClose": state.timer = null; save(); render(); break;
+    case "tmrAdd": if (state.timer){ state.timer.end += (+b.dataset.v)*1000; state.timer.total = Math.max(5, state.timer.total + (+b.dataset.v)); save(); renderDock(); } break;
+    case "tmrClose": state.timer = null; save(); renderDock(); break;
+    case "dockRest": { const its = state.active.items, it = its.find(q => q.sets.some(z => !z.done)) || its[its.length-1];
+      if (it) startTimer(it.rest, exById(it.ex).n); else startTimer(90, "Rest"); renderDock(); break; }
     // program
     case "tpl": {
       const doIt = () => { const t = TEMPLATES[b.dataset.v], old = state.block, had = blockSessions(old).length > 0;
