@@ -521,7 +521,7 @@ const U = () => state.units;
 const fmtTime = s => { s = Math.max(0, Math.round(s)); const m = Math.floor(s/60), r = s % 60; return `${m}:${String(r).padStart(2,"0")}`; };
 const parseTime = v => { v = String(v||"").trim(); if (!v) return null; if (v.includes(":")){ const [m,s] = v.split(":"); return (+m||0)*60 + (+s||0); } return +v || null; };
 const num = v => { const x = parseFloat(String(v).replace(",", ".")); return isFinite(x) ? x : null; };
-const e1rm = (w, r) => (w && r && r <= 12) ? w * (1 + r/30) : null;
+const e1rm = (w, r) => (w > 0 && r > 0 && r <= 15) ? (r === 1 ? w : w * (1 + r/30)) : null;
 const dayMs = 864e5;
 const startOfDay = t => { const d = new Date(t); d.setHours(0,0,0,0); return d.getTime(); };
 const fmtDate = t => new Date(t).toLocaleDateString(undefined, { weekday:"short", month:"short", day:"numeric" });
@@ -543,10 +543,67 @@ function lastPerf(exId){
   }
   return null;
 }
-function bestE1(exId, excludeActive){
-  let best = 0;
-  state.sessions.forEach(s => s.items.forEach(it => { if (it.ex !== exId) return; it.sets.forEach(st => { if (!st.done || st.tag === "W") return; const v = e1rm(num(st.w), num(st.r)); if (v && v > best) best = v; }); }));
-  return best;
+// ---- Personal records ----
+// Kinds: weight (heaviest ever), 1RM (estimated, sets of 1-15), reps (most reps at this weight or heavier),
+// best day (total weight moved, or total reps when unloaded; checked at the finish), hold time for timed moves.
+// Assisted machines are flipped: less assistance is the record. Warm-ups never count, and the first session
+// of an exercise can't set a record because there's nothing to beat.
+const isAssisted = ex => /assisted/i.test(ex.n);
+const workSets = sets => sets.filter(q => q.done && q.tag !== "W");
+function dayScore(ex, ws){
+  if (ex.t === "time") return 0;
+  if (loaded(ex) && !isAssisted(ex) && ws.some(q => num(q.w) > 0)) return ws.reduce((a, q) => a + (num(q.w) || 0) * (num(q.r) || 0), 0);
+  return ws.reduce((a, q) => a + (num(q.r) || 0), 0);
+}
+function dayLabel(ex, ws){ const v = Math.round(dayScore(ex, ws)); return loaded(ex) && !isAssisted(ex) && ws.some(q => num(q.w) > 0) ? `Best day: ${v.toLocaleString()} ${U()}` : `Best day: ${v} reps`; }
+// every working set logged for an exercise before a point in time, plus how many sessions and the best day
+function prHistory(exId, before){
+  const ex = exById(exId), out = { sets:[], n:0, day:0 };
+  state.sessions.forEach(s => { if (before != null && s.end >= before) return; s.items.forEach(it => { if (it.ex !== exId) return; const ws = workSets(it.sets); if (!ws.length) return; out.n++; out.sets.push(...ws); out.day = Math.max(out.day, dayScore(ex, ws)); }); });
+  return out;
+}
+// the records a set breaks against the earlier sets in `prior`, biggest first, as labels like "Rep PR: 185×9"
+function setPRs(ex, s, prior){
+  if (!prior.length || s.tag === "W") return [];
+  if (ex.t === "time"){ const t = parseTime(s.r) || 0, b = Math.max(0, ...prior.map(q => parseTime(q.r) || 0)); return b && t > b ? [`Hold PR: ${fmtTime(t)}`] : []; }
+  const w = num(s.w) || 0, r = num(s.r) || 0; if (!r) return [];
+  const P = prior.map(q => ({ w:num(q.w) || 0, r:num(q.r) || 0 })).filter(q => q.r > 0); if (!P.length) return [];
+  const out = [], at = P.filter(q => q.w === w).length > 0; // rep records need an earlier set at this exact weight
+  if (isAssisted(ex)){
+    if (w < Math.min(...P.map(q => q.w))) out.push(`Assist PR: ${w ? `${fmtW(w)} assist` : "no assist"}`);
+    else if (at && r > Math.max(...P.filter(q => q.w <= w).map(q => q.r))) out.push(`Rep PR: ${r} reps at ${fmtW(w)} assist`);
+    return out;
+  }
+  if (w > Math.max(...P.map(q => q.w))) out.push(`Weight PR: ${loaded(ex) ? "" : "+"}${fmtW(w)}`);
+  else if (at && r > Math.max(...P.filter(q => q.w >= w).map(q => q.r))) out.push(`Rep PR: ${w ? `${+w.toFixed(1)}×${r}` : `${r} reps`}`);
+  if (w && loaded(ex)){ const v = e1rm(w, r), b = Math.max(0, ...P.map(q => e1rm(q.w, q.r) || 0)); if (v && b && v > b) out.push(`1RM PR: ${Math.round(v)} ${U()}`); }
+  return out;
+}
+const setPR = (ex, s, prior) => setPRs(ex, s, prior)[0] || null;
+// all the records an exercise set in one workout: one per kind, plus best day
+function itemPRs(ex, sets, hist){
+  if (!hist.n) return [];
+  const ws = workSets(sets), seen = [], got = {};
+  ws.forEach(q => { setPRs(ex, q, hist.sets.concat(seen)).forEach(l => { got[l.split(":")[0]] = l; }); seen.push(q); });
+  const out = Object.values(got);
+  if (ex.t !== "time" && hist.day > 0 && dayScore(ex, ws) > hist.day) out.push(dayLabel(ex, ws));
+  return out;
+}
+// most reps at each weight, keeping only weights where you beat everything heavier (or with less assistance)
+function repRecords(ex){
+  if (ex.t === "time") return "";
+  const as = isAssisted(ex), by = {};
+  prHistory(ex.id).sets.forEach(q => { const w = num(q.w) || 0, r = num(q.r) || 0; if (r && (!by[w] || r > by[w])) by[w] = r; });
+  const ws = Object.keys(by).map(Number).sort((a, b) => as ? a - b : b - a), rows = []; let most = 0;
+  ws.forEach(w => { if (by[w] > most){ rows.push([w, by[w]]); most = by[w]; } });
+  if (rows.length < 2 && !(rows.length && rows[0][0])) return "";
+  const lab = w => as ? (w ? `${+w.toFixed(1)} assist` : "no assist") : w ? `${loaded(ex) ? "" : "+"}${+w.toFixed(1)} ${U()}` : "Bodyweight";
+  return `<div class="eyebrow">Rep records</div><div class="tablewrap"><table class="st"><thead><tr><th>Weight</th><th>Most reps</th></tr></thead><tbody>${rows.map(([w, r]) => `<tr><td>${lab(w)}</td><td>${r}</td></tr>`).join("")}</tbody></table></div>`;
+}
+function sessionPRs(items, before){
+  const prs = [], prk = {};
+  items.forEach(it => { const ex = exById(it.ex), l = itemPRs(ex, it.sets, prHistory(it.ex, before)); if (l.length){ prs.push(it.ex); prk[it.ex] = l; } });
+  return { prs, prk };
 }
 function volumeOf(sess){ let v = 0; sess.items.forEach(it => { if (exById(it.ex).t === "time") return; it.sets.forEach(s => { if (s.done && s.tag !== "W"){ const w = num(s.w), r = num(s.r); if (w && r) v += w*r; } }); }); return Math.round(v); }
 function setsOf(sess){ return sess.items.reduce((a,it)=>a+it.sets.filter(s=>s.done && s.tag !== "W").length,0); }
@@ -1278,7 +1335,7 @@ function sessionView(){
                : `<input type="text" inputmode="decimal" id="w-${xi}-${si}" data-f="w" data-x="${xi}" data-s="${si}" value="${esc(s.w)}" placeholder="${ex.e==="BW"?"BW":U()}" autocomplete="off" aria-label="Set ${si+1} weight">
                  <input type="text" inputmode="numeric" id="r-${xi}-${si}" data-f="r" data-x="${xi}" data-s="${si}" value="${esc(s.r)}" placeholder="${it.lo&&it.hi?`${it.lo}-${it.hi}`:"reps"}" autocomplete="off" aria-label="Set ${si+1} reps">`}
         <button class="ck" data-act="done" data-x="${xi}" data-s="${si}" id="ck-${xi}-${si}" aria-pressed="${s.done}" aria-label="Set ${si+1} done">✓</button>
-        ${s.done ? `<span class="setmeta num">${s.rest!=null?`rested ${fmtTime(s.rest)}`:""}${s.pr?`${s.rest!=null?" · ":""}<b>New PR!</b>`:""}
+        ${s.done ? `<span class="setmeta num">${s.rest!=null?`rested ${fmtTime(s.rest)}`:""}${s.pr?`${s.rest!=null?" · ":""}<b>🏆 ${s.pr===true?"New PR!":esc(s.pr)}</b>`:""}
           ${s.tag!=="W"&&!isT?`<span class="rir" role="group" aria-label="Reps in reserve"><span class="rl">RIR</span>${[0,1,2,3,4].map(v=>`<button data-act="rir" data-x="${xi}" data-s="${si}" data-v="${v}" id="rir-${xi}-${si}-${v}" aria-pressed="${s.rir===v}">${v===4?"4+":v}</button>`).join("")}</span>`:""}</span>` : ""}
       </div>`).join("");
     const note = (state.notes||{})[it.ex] || "";
@@ -1329,7 +1386,7 @@ function summaryView(){
   return `<div class="summary"><span class="eyebrow" style="color:inherit;opacity:.7">Workout saved</span><h2 style="font-size:30px">${esc(s.dayName)} done 💪</h2>
     <div class="stats num"><span><b>${fmtTime((s.end-s.start)/1000)}</b>time</span><span><b>${setsOf(s)}</b>sets</span><span><b>${volumeOf(s).toLocaleString()}</b>${U()} lifted</span></div>
     ${(()=>{ const r = s.items.flatMap(it=>it.sets).filter(q=>q.rir!=null); if (!r.length) return ""; const avg = r.reduce((a,q)=>a+q.rir,0)/r.length; return `<div style="font-weight:700">Average effort: ${avg.toFixed(1)} reps in reserve${avg>3?". Try pushing a little closer to failure next time.":avg<1?". That's a hard session. Recover well.":". Right in the sweet spot."}</div>`; })()}
-    ${s.prs && s.prs.length ? `<div style="font-weight:700">🏆 New PR${s.prs.length>1?"s":""}: ${s.prs.map(id=>esc(exById(id).n)).join(", ")}</div>` : ""}
+    ${s.prs && s.prs.length ? (s.prk ? `<div style="font-weight:700">🏆 New PR${s.prs.length>1?"s":""}${s.prs.map(id=>`<div style="font-weight:600">${esc(exById(id).n)}: ${(s.prk[id]||[]).map(esc).join(" · ")}</div>`).join("")}</div>` : `<div style="font-weight:700">🏆 New PR${s.prs.length>1?"s":""}: ${s.prs.map(id=>esc(exById(id).n)).join(", ")}</div>`) : ""}
     ${tg.length ? `<div style="font-weight:700">🎯 Hit your target on ${hit} of ${plural(tg.length, "exercise")}.${hit < tg.length ? " Next time's targets adjust to what you did today." : ""}</div>` : ""}
     ${s.blockDone ? `<div style="font-weight:800">🎉 That wraps up Block ${s.blockDone}. Next, review what got stronger and build your next block.</div>` : ""}
     <div class="sumbtns">${s.blockDone ? `<button data-act="openReview" id="sumReview">Review my block</button>` : ""}<button data-act="closeSummary" id="closeSummary">Done</button></div></div>`;
@@ -1485,10 +1542,18 @@ function progressView(){
     ${lifting.map(m => { const v = mc[m]||0, st = v >= 10 && v <= 20 ? "on target" : v > 20 ? "above" : v ? "under" : "none";
       return `<div class="hbar num" title="${m}: ${v} sets, ${st}"><span>${m}</span><span class="t"><span class="band" style="left:${10/scaleMax*100}%;width:${10/scaleMax*100}%"></span><span class="fill" style="display:block;height:100%;width:${v/scaleMax*100}%;background:var(--accent);border-radius:0 4px 4px 0"></span></span><span style="text-align:right;${v>=10&&v<=20?"color:var(--good);font-weight:800":""}">${v}</span></div>`; }).join("")}
     <p class="hint">The green zone is 10–20 working sets. Warm-ups aren't counted. Most people grow best somewhere in that range.</p></div>`;
-  // PRs
-  const prs = {}; S.forEach(s => s.items.forEach(it => it.sets.forEach(st => { if (!st.done) return; const w = num(st.w), r = num(st.r), v = e1rm(w,r); if (!v) return; const cur = prs[it.ex]; if (!cur || v > cur.v) prs[it.ex] = { v, w, r, at:s.end }; })));
-  const prList = Object.entries(prs).sort((a,b)=>b[1].v-a[1].v);
-  const prTable = `<div class="panel"><h3>Personal records</h3>${prList.length?`<div class="tablewrap"><table class="st"><thead><tr><th>Exercise</th><th>Best set</th><th>Est. 1RM</th><th>When</th></tr></thead><tbody>${prList.map(([id,p])=>`<tr><td>${esc(exById(id).n)}</td><td>${p.w}×${p.r}</td><td>${Math.round(p.v)}</td><td>${agoTxt(p.at)}</td></tr>`).join("")}</tbody></table></div><p class="hint">Est. 1RM is your estimated one-rep max, from the Epley formula, using sets of 12 reps or fewer.</p>`:`<p class="hint">Log weighted sets to start tracking records.</p>`}</div>`;
+  // records
+  const recIds = [...new Set(S.flatMap(s => s.items.filter(it => workSets(it.sets).length).map(it => it.ex)))];
+  const recs = recIds.map(id => { const ex = exById(id), h = prHistory(id), P = h.sets.map(q => ({ w:num(q.w) || 0, r:num(q.r) || 0, t:parseTime(q.r) || 0 }));
+    if (ex.t === "time") return { id, ex, hold:Math.max(0, ...P.map(q => q.t)) };
+    const as = isAssisted(ex), ws = P.map(q => q.w), top = as ? Math.min(...ws) : Math.max(...ws);
+    const e1 = loaded(ex) && !as ? Math.max(0, ...P.map(q => e1rm(q.w, q.r) || 0)) : 0;
+    const days = S.map(s => s.items.filter(it => it.ex === id).map(it => workSets(it.sets)).find(x => x.length)).filter(Boolean);
+    const bestDay = days.reduce((b, d) => dayScore(ex, d) > (b ? dayScore(ex, b) : -1) ? d : b, null);
+    return { id, ex, as, top, topR:Math.max(0, ...P.filter(q => q.w === top).map(q => q.r)), e1, day:bestDay ? dayLabel(ex, bestDay).replace("Best day: ", "") : "–" };
+  }).sort((a, b) => (b.e1 || 0) - (a.e1 || 0) || a.ex.n.localeCompare(b.ex.n));
+  const prList = recs.map(r => [r.id]);
+  const prTable = `<div class="panel"><h3>Personal records</h3>${recs.length?`<div class="tablewrap"><table class="st"><thead><tr><th>Exercise</th><th>Heaviest</th><th>Est. 1RM</th><th>Best day</th></tr></thead><tbody>${recs.map(r=>`<tr><td>${esc(r.ex.n)}</td>${r.ex.t==="time"?`<td>${fmtTime(r.hold)} hold</td><td>–</td><td>–</td>`:`<td>${r.as?(r.top?`${+r.top.toFixed(1)} assist`:"no assist"):r.top?`${loaded(r.ex)?"":"+"}${+r.top.toFixed(1)}`:"BW"}×${r.topR}</td><td>${r.e1?Math.round(r.e1):"–"}</td><td>${r.day}</td>`}</tr>`).join("")}</tbody></table></div><p class="hint">Est. 1RM is your estimated one-rep max from the Epley formula, using sets of 15 reps or fewer. Best day is the most weight you've moved on that exercise in one workout (total reps for bodyweight and assisted moves). Warm-ups never count. Pick an exercise below to see its rep records.</p>`:`<p class="hint">Log some sets to start tracking records.</p>`}</div>`;
   // exercise detail
   const done = [...new Set(S.flatMap(s => s.items.filter(it=>it.sets.some(x=>x.done)).map(it=>it.ex)))].sort((a,b)=>exById(a).n.localeCompare(exById(b).n));
   if (!progressEx || !done.includes(progressEx)) progressEx = prList.length ? prList[0][0] : done[0];
@@ -1510,6 +1575,7 @@ function progressView(){
   const detail = `<div class="panel"><h3>Exercise history</h3>
     <select id="progressEx" aria-label="Exercise">${done.map(id=>`<option value="${id}" ${id===progressEx?"selected":""}>${esc(exById(id).n)}</option>`).join("")}</select>
     ${spark ? `<div class="eyebrow">Estimated 1RM (${U()})</div>${spark}` : ""}
+    ${repRecords(ex)}
     <div class="tablewrap"><table class="st"><thead><tr><th>Date</th><th>Sets</th>${ex.t==="time"?"":"<th>Best e1RM</th>"}</tr></thead><tbody>${pts.slice().reverse().map(p=>`<tr><td>${fmtDate(p.at)}</td><td>${p.sets.map(x=>fmtSet(x, ex.t)).join(", ")}</td>${ex.t==="time"?"":`<td>${p.best?Math.round(p.best):"–"}</td>`}</tr>`).join("")}</tbody></table></div></div>`;
   return tiles + cal + bars + muscles + prTable + detail;
 }
@@ -2340,9 +2406,8 @@ function plogSave(){
     return { ex:ids[i], sets:e.sets.map(s => ({ w:s.w, r:s.r, done:true, ...(s.tag ? { tag:s.tag } : {}) })), targetSets:e.sets.filter(s => s.tag !== "W").length, lo:Math.min(...reps), hi:Math.max(...reps), rest:restFor(x), ss:false }; });
   // a past day's workout is placed at 6 pm that day; today's ends now
   const end = p.date === dkey(Date.now()) ? Date.now() : new Date(dayOf(p.date)).setHours(18, 0, 0, 0), start = end - (p.res.minutes || estMins(items)) * 60000;
-  const before = state.sessions.filter(s => s.end < end), best = id => { let b = 0; before.forEach(s => s.items.forEach(it => { if (it.ex === id) it.sets.forEach(st => { const v = st.done && st.tag !== "W" ? e1rm(num(st.w), num(st.r)) : null; if (v && v > b) b = v; }); })); return b; };
-  const prs = items.filter(it => { const prev = best(it.ex), mine = Math.max(0, ...it.sets.filter(s => s.tag !== "W").map(s => e1rm(num(s.w), num(s.r)) || 0)); return mine > 0 && prev > 0 && mine > prev; }).map(it => it.ex);
-  const sess = { id:uid(), dayId:day ? day.id : null, dayName:p.title.trim() || (day ? day.name : "Workout"), start, end, items, prs, from:"photo" };
+  const { prs, prk } = sessionPRs(items, end);
+  const sess = { id:uid(), dayId:day ? day.id : null, dayName:p.title.trim() || (day ? day.name : "Workout"), start, end, items, prs, prk, from:"photo" };
   const at = state.sessions.findIndex(s => s.end > end);
   if (at < 0) state.sessions.push(sess); else state.sessions.splice(at, 0, sess);
   plogClose(); state.tab = "history"; summary = null; save(); askPersist();
@@ -2434,9 +2499,9 @@ function finishSession(){
   a.items = a.items.filter(it => it.sets.some(s => s.done)).map(it => ({ ...it, sets: it.sets.filter(s => s.done) }));
   if (!a.items.length){ state.active = null; state.timer = null; save(); showToast("No sets were completed, so nothing was saved."); render(); return; }
   // PRs against everything before this workout
-  const prs = []; a.items.forEach(it => { const prev = bestE1(it.ex); const mine = Math.max(0, ...it.sets.map(s => e1rm(num(s.w), num(s.r)) || 0)); if (mine > 0 && mine > prev && prev > 0) prs.push(it.ex); });
+  const { prs, prk } = sessionPRs(a.items);
   const wasDue = blockInfo().due;
-  const sess = { id:a.id, dayId:a.dayId, dayName:a.dayName, start:a.start, end:Date.now(), ...(a.ready ? { ready:a.ready } : {}), items:a.items.map(it => it.target ? { ...it, target:{ w:it.target.w, reps:it.target.reps, kind:it.target.kind } } : it), prs };
+  const sess = { id:a.id, dayId:a.dayId, dayName:a.dayName, start:a.start, end:Date.now(), ...(a.ready ? { ready:a.ready } : {}), items:a.items.map(it => it.target ? { ...it, target:{ w:it.target.w, reps:it.target.reps, kind:it.target.kind } } : it), prs, prk };
   state.sessions.push(sess); state.active = null; state.timer = null;
   summary = { ...sess, blockDone: !wasDue && blockInfo().due ? state.block.n : 0 };
   save(); askPersist(); render(); window.scrollTo(0,0);
@@ -2481,9 +2546,8 @@ document.addEventListener("click", e => {
       s.done = true; s.ts = Date.now();
       if (state.active.lastDone) s.rest = Math.round((s.ts - state.active.lastDone)/1000);
       state.active.lastDone = s.ts;
-      const v = s.tag === "W" ? null : e1rm(num(s.w), num(s.r)), prev = bestE1(it.ex);
-      const sessBest = Math.max(0, ...it.sets.filter(q=>q!==s && q.done).map(q=>e1rm(num(q.w), num(q.r))||0));
-      if (v && prev > 0 && v > prev && v > sessBest){ s.pr = true; showToast(`🏆 New PR on ${ex.n}!`); }
+      const hist = prHistory(it.ex), pr = hist.n ? setPR(ex, s, hist.sets.concat(workSets(it.sets.filter(q => q !== s)))) : null;
+      s.pr = pr || false; if (pr) showToast(`🏆 ${pr} on ${ex.n}!`);
       // prefill the next set with this set's numbers if it's empty
       const nx = it.sets[+b.dataset.s + 1]; if (nx && !nx.done){ if (!nx.w) nx.w = s.w; if (!nx.r) nx.r = s.r; }
       const moreLeft = state.active.items.some(q => q.sets.some(z => !z.done));
