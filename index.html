@@ -338,6 +338,65 @@ const PATTERNS = [
   ["anti",/Plank|Hollow|Dead Bug|Bird Dog|Body Saw|Stir|Rollout|Pallof|Bear/],["rotate",/Twist|Chop|Woodchopper|Rotation|Side Bend|Cable Lift|180/],
   ["carry",/Carry|Walk|Hold|Hang/],["oly",/Clean|Snatch|Jerk|Thruster|High Pull/],
 ];
+// ---------- superset overlap ----------
+// Which muscles each movement works: 1 = the main target, .5 = a big helper, .3 = a small helper.
+// Two exercises overlap when they share muscles; superset them and the second one starts tired.
+const LOADS = {
+  hpush:{ Chest:1, Triceps:.5, Front:.5 }, vpush:{ Front:1, Delts:.7, Triceps:.5 }, dip:{ Triceps:1, Chest:.7, Front:.3 }, fly:{ Chest:1, Front:.3 }, pullover:{ Back:.7, Chest:.5 },
+  vpull:{ Back:1, Biceps:.5, Rear:.3, Grip:.3 }, hpull:{ Back:1, Biceps:.5, Rear:.3, Grip:.3 }, rear:{ Rear:1, Delts:.5, Traps:.3 },
+  lat:{ Delts:1, Traps:.5 }, front:{ Front:1, Delts:.5 }, shrug:{ Traps:1, Grip:.5 },
+  curl:{ Biceps:1, Grip:.3 }, hammer:{ Biceps:1, Grip:.5 }, tri:{ Triceps:1 }, wrist:{ Grip:1 },
+  squat:{ Quads:1, Glutes:.5 }, lunge:{ Quads:1, Glutes:.7 }, legext:{ Quads:1 }, legcurl:{ Hamstrings:1 },
+  hinge:{ Hamstrings:1, Glutes:.7, LowBack:.5, Grip:.3 }, dead:{ LowBack:1, Hamstrings:.7, Glutes:.7, Back:.3, Grip:.5 },
+  thrust:{ Glutes:1, Hamstrings:.3 }, abduct:{ Glutes:1 }, gkick:{ Glutes:1 }, backext:{ LowBack:1, Glutes:.5, Hamstrings:.5 },
+  calf:{ Calves:1 }, crunch:{ Core:1 }, legraise:{ Core:1 }, anti:{ Core:1 }, rotate:{ Core:1 }, carry:{ Grip:1, Core:.5, Traps:.5 }, oly:{ Quads:.5, Glutes:.5, LowBack:.5, Traps:.5 }
+};
+const MUSCLE_WORD = { Delts:"shoulders", Front:"front delts", Rear:"rear delts", LowBack:"lower back", Grip:"grip", Traps:"traps" };
+function loadMap(ex){
+  if (!ex || ["Cardio","Mobility"].includes(ex.m)) return {};
+  const p = patternOf(ex); if (LOADS[p]) return LOADS[p];
+  return { [ex.m === "Shoulders" ? "Delts" : ex.m]:1 };
+}
+// how much exercise b is pre-tired by doing exercise a right before it, and the muscle they share most
+function overlapOf(a, b){
+  const A = loadMap(a), B = loadMap(b); let total = 0, top = null, topV = 0;
+  Object.keys(A).forEach(m => { if (!B[m]) return; const v = Math.min(A[m], B[m]); total += v; if (v > topV){ topV = v; top = m; } });
+  return { v:total, m:top, same:top && A[top] === 1 && B[top] === 1 };
+}
+const tooClose = o => o.v >= .5 && o.m;
+function ssWarnText(a, b){
+  const o = overlapOf(a, b); if (!tooClose(o)) return "";
+  const w = (MUSCLE_WORD[o.m] || o.m).toLowerCase();
+  return o.same ? `${a.n} and ${b.n} both work your ${w}, so ${b.n} starts tired and its numbers will look stalled.`
+    : `${a.n} also works your ${w}, so ${b.n} starts tired and its numbers will look stalled.`;
+}
+// Re-pair a day's supersets so partners overlap as little as possible. Pairs stay where they were in the day;
+// if no swap among the paired exercises helps, the day's unpaired lifts can step in.
+function repairDay(d){
+  const its = d.items, n = its.length;
+  const pairAt = []; its.forEach((it, i) => { if (it.ss && its[i+1] && !(i > 0 && its[i-1].ss) && !its[i+1].ss) pairAt.push(i); });
+  if (!pairAt.length || its.some((it, i) => it.ss && its[i+1] && its[i+1].ss)) return null;   // no pairs, or a triset: leave it alone
+  const k = pairAt.length, members = pairAt.flatMap(i => [i, i+1]), others = its.map((_, i) => i).filter(i => !members.includes(i) && exById(its[i].ex).t !== "time" && LIFT_MUSCLES.includes(exById(its[i].ex).m));
+  const rank = i => ({ heavy:0, comp:1, iso:2 }[klass(exById(its[i].ex))] ?? 3);
+  const order2 = (a, b) => rank(a) < rank(b) || (rank(a) === rank(b) && a < b) ? [a, b] : [b, a];
+  const cost = ([a, b]) => overlapOf(exById(its[a].ex), exById(its[b].ex)).v;
+  function matchings(pool){ if (!pool.length) return [[]]; const [f, ...rest] = pool, out = []; rest.forEach((x, j) => { const left = rest.filter((_, q) => q !== j); matchings(left).forEach(m => out.push([order2(f, x), ...m])); }); return out; }
+  function combos(arr, r){ if (r === 0) return [[]]; if (arr.length < r) return []; const [f, ...rest] = arr; return combos(rest, r - 1).map(c => [f, ...c]).concat(combos(rest, r)); }
+  const score = (m, pulled) => m.reduce((t, p) => t + cost(p), 0) + .15 * pulled;
+  const was = pairAt.map(i => order2(i, i+1)), base = score(was, 0);
+  let best = null, bestS = base;
+  matchings(members).forEach(m => { const sc = score(m, 0); if (sc < bestS - .01){ best = m; bestS = sc; } });
+  if ((!best || best.some(p => cost(p) >= .5)) && others.length && members.length + others.length <= 12)
+    combos(members.concat(others), 2*k).forEach(c => { const pulled = c.filter(i => others.includes(i)).length; matchings(c).forEach(m => { const sc = score(m, pulled); if (sc < bestS - .01){ best = m; bestS = sc; } }); });
+  if (!best) return { none:true };
+  best.sort((p, q) => Math.min(...p) - Math.min(...q));
+  const used = new Set(best.flat()), out = new Array(n), slots = new Set();
+  pairAt.forEach((pos, j) => { out[pos] = { ...its[best[j][0]], ss:true }; out[pos+1] = { ...its[best[j][1]], ss:false }; slots.add(pos); slots.add(pos+1); });
+  const pushed = its.map((_, i) => i).filter(i => !used.has(i) && members.includes(i));
+  its.forEach((it, i) => { if (slots.has(i)) return; out[i] = others.includes(i) && used.has(i) ? { ...its[pushed.shift()], ss:false } : { ...it, ss:false }; });
+  return { items:out, pairs:best.map(([a, b]) => [its[a].ex, its[b].ex]) };
+}
+
 // custom exercises Claude described carry their own pattern (p), rest class (k) and form tip (tip)
 function patternOf(ex){ if (ex.p) return ex.p === "other" ? ex.m : ex.p; for (const [k, re] of PATTERNS) if (re.test(ex.n)) return k; return ex.m; }
 const FORM = {
@@ -661,7 +720,7 @@ function exposures(exId){
     const pos = s.items.indexOf(it), inSS = it.ss || (pos > 0 && s.items[pos-1].ss), known = work.filter(x => x.rir != null);
     const rs = inSS ? [] : it.sets.filter((x, k) => k > 0 && x.done && x.tag !== "W" && x.rest != null && x.rest > 0).map(x => x.rest);
     out.push({ at:s.end, dayId:s.dayId, work, score, day, improved, pos, of:s.items.length, rest:rs.length ? avg(rs) : null, restT:it.rest || null,
-      rir:known.length ? avg(known.map(x => x.rir)) : null, bad:!!(s.ready && (s.ready.level === "rough" || s.ready.level === "off")), flag:(it.target && it.target.flag) || null });
+      rir:known.length ? avg(known.map(x => x.rir)) : null, pre:pos > 0 && s.items[pos-1].ss ? { ex:s.items[pos-1].ex, ov:overlapOf(exById(s.items[pos-1].ex), ex).v } : null, bad:!!(s.ready && (s.ready.level === "rough" || s.ready.level === "off")), flag:(it.target && it.target.flag) || null });
     prior.push(...work); bestScore = Math.max(bestScore, score); bestDay = Math.max(bestDay, day); });
   return out;
 }
@@ -759,6 +818,8 @@ function targetFor(tpl, ctx){
   if (stalled){
     const N = "No progress in your last 3 workouts on this one";
     const rirs = L3.map(h => h.rir).filter(v => v != null), rr = rirs.length ? avg(rirs) : null;
+    const pf = L3.filter(h => h.pre && h.pre.ov >= .5);
+    if (pf.length >= 2 && !tried("pair")){ const a = exById(pf[pf.length-1].pre.ex), w = ssWarnText(a, ex); return flagged(fill(W, topR, "same", `${N}, but it's been second in a superset. ${w} That's leftover fatigue, not a true stall. Same weight today. On the Program tab, tap “Suggest better pairs” for this day, or do it on its own.`), "pair"); }
     if (rr != null && rr >= 3 && !tried("push")) return flagged(fill(W, topR.map(r => Math.min(hi + 2, r + 2)), "same", `${N}, but you've been stopping with about ${Math.round(rr)} reps left. That's not a stall, that's room. Same weight: push to 1–2 reps left on every set.`), "push");
     const rests = L3.filter(h => h.rest != null && h.restT), short = rests.length >= 2 && avg(rests.map(h => h.rest / h.restT)) < .8;
     if (short && !tried("rest")){ const ar = avg(rests.map(h => h.rest)), tg = rests[rests.length-1].restT; return flagged(fill(W, topR, "same", `${N}, and you've been resting about ${fmtTime(ar)} between sets instead of ${fmtTime(tg)}. Short rests cost reps. Same weight: rest the full ${fmtTime(tg)} today before backing off.`), "rest"); }
@@ -1378,7 +1439,7 @@ function sessionView(){
       </div>`).join("");
     const note = (state.notes||{})[it.ex] || "";
     return `<div class="panel exc ${inSS?"ss":""} ${it.ss?"ss-a":""} ${ssPrev?"ss-b":""}">
-      ${inSS?`<span class="sslabel">${it.ss?"Superset · then":"Superset · after"} ${esc(exById((it.ss?a.items[xi+1]:a.items[xi-1]).ex).n)}</span>`:""}
+      ${inSS?`<span class="sslabel">${it.ss?"Superset · then":"Superset · after"} ${esc(exById((it.ss?a.items[xi+1]:a.items[xi-1]).ex).n)}</span>`:""}${ssPrev && ssWarnText(exById(a.items[xi-1].ex), ex) ? `<span class="hint" style="font-size:12.5px">⚠️ Starts tired from ${esc(exById(a.items[xi-1].ex).n)}. Compare its numbers to other superset days, not your fresh best.</span>` : ""}
       <div class="exhead"><div class="grow"><div class="en">${esc(ex.n)}</div><div class="em">${esc(ex.m)} · ${EQ[ex.e]||""} · ${it.targetSets?`${it.targetSets} × ${isT?`${it.lo}-${it.hi}s`:`${it.lo}-${it.hi}`}`:"no target"} · rest ${fmtTime(it.rest)}</div></div>
         <div class="iconbtns"><button id="swap-${xi}" data-act="swap" data-x="${xi}" aria-label="Swap exercise">⇄ Swap</button><button id="up-${xi}" data-act="sxUp" data-x="${xi}" aria-label="Move up" ${xi===0?"disabled":""}>↑</button><button id="rm-${xi}" data-act="sxRm" data-x="${xi}" aria-label="Remove exercise">${confirmKey==="sxrm"+xi?"Remove?":"✕"}</button></div></div>
       ${note ? `<div class="notepre">📝 ${esc(note)}</div>` : ""}
@@ -1430,12 +1491,28 @@ function summaryView(){
     <div class="sumbtns">${s.blockDone ? `<button data-act="openReview" id="sumReview">Review my block</button>` : ""}<button data-act="closeSummary" id="closeSummary">Done</button></div></div>`;
 }
 
+let ssFix = null;   // { d, res } while a re-pairing suggestion is showing
+function ssFixPanel(d, di){
+  const bad = d.items.filter((it, i) => it.ss && d.items[i+1] && ssWarnText(exById(it.ex), exById(d.items[i+1].ex))).length;
+  if (!bad && !(ssFix && ssFix.d === di)) return "";
+  if (ssFix && ssFix.d === di){
+    const r = ssFix.res;
+    if (!r || r.none) return `<div class="err" style="display:flex;flex-direction:column;gap:8px">No better partner in this day for these. Do the overlapping ones as straight sets instead: tap “Unlink superset” on them.<button class="small ghost" data-act="ssFixNo" id="ssfixno-${di}">OK</button></div>`;
+    const left = r.pairs.filter(([a, b]) => ssWarnText(exById(a), exById(b))).length;
+    return `<div class="panel" style="background:var(--surface-2);gap:8px"><b>Suggested pairs</b>
+      ${r.pairs.map(([a, b]) => { const w = ssWarnText(exById(a), exById(b)); return `<div class="hint">🔗 ${esc(exById(a).n)} + ${esc(exById(b).n)}${w ? " ⚠️ still overlaps" : " ✓"}</div>`; }).join("")}
+      <p class="hint" style="font-size:12.5px">Same exercises, sets and reps. Only the partners${r.items.some((it, i) => it.ex !== d.items[i].ex) ? " and order" : ""} change.${left ? " One still overlaps: no better partner in this day, so consider doing it as straight sets." : ""}</p>
+      <div class="btnrow"><button class="small primary" data-act="ssFixApply" id="ssfixok-${di}">Use these pairs</button><button class="small ghost" data-act="ssFixNo" id="ssfixno-${di}">Keep mine</button></div></div>`;
+  }
+  return `<div class="err" style="display:flex;flex-direction:column;gap:8px">${plural(bad, "superset")} here ${bad > 1 ? "pair" : "pairs"} muscles that overlap.<button class="small" data-act="ssFixGo" data-d="${di}" id="ssfix-${di}">Suggest better pairs</button></div>`;
+}
+
 function programView(){
   const days = state.days.map((d, di) => {
     const items = d.items.map((it, xi) => { const ex = exById(it.ex), isT = ex.t === "time";
       return `<div class="pitem"><div class="row"><span class="pn grow">${esc(ex.n)} <span class="hint" style="font-weight:400">· ${esc(ex.m)}</span></span>
         <span class="iconbtns"><button id="pu-${di}-${xi}" data-act="piUp" data-d="${di}" data-x="${xi}" aria-label="Move up" ${xi===0?"disabled":""}>↑</button><button id="pd-${di}-${xi}" data-act="piDown" data-d="${di}" data-x="${xi}" aria-label="Move down" ${xi===d.items.length-1?"disabled":""}>↓</button><button id="pr-${di}-${xi}" data-act="piRm" data-d="${di}" data-x="${xi}" aria-label="Remove">✕</button></span></div>
-        ${it.ss && xi < d.items.length-1 ? `<span class="sslabel">🔗 Superset with ${esc(exById(d.items[xi+1].ex).n)}</span>` : ""}
+        ${it.ss && xi < d.items.length-1 ? `<span class="sslabel">🔗 Superset with ${esc(exById(d.items[xi+1].ex).n)}</span>${(w => w ? `<span class="hint" style="font-size:12.5px;color:var(--bad)">⚠️ ${esc(w)}</span>` : "")(ssWarnText(ex, exById(d.items[xi+1].ex)))}` : ""}
         <div class="pgrid">
           <label>Sets<span class="mini"><button data-act="piSets" data-d="${di}" data-x="${xi}" data-v="-1" id="ps-${di}-${xi}-m" aria-label="Fewer sets">−</button><span class="num">${it.sets}</span><button data-act="piSets" data-d="${di}" data-x="${xi}" data-v="1" id="ps-${di}-${xi}-p" aria-label="More sets">+</button></span></label>
           <label>${isT?"Seconds":"Reps"}<span class="reps"><input type="text" inputmode="numeric" id="lo-${di}-${xi}" data-pf="lo" data-d="${di}" data-x="${xi}" value="${it.lo}" aria-label="Low">–<input type="text" inputmode="numeric" id="hi-${di}-${xi}" data-pf="hi" data-d="${di}" data-x="${xi}" value="${it.hi}" aria-label="High"></span></label>
@@ -1445,6 +1522,7 @@ function programView(){
     return `<div class="panel"><div class="row"><input type="text" id="dn-${di}" data-dname="${di}" value="${esc(d.name)}" maxlength="24" aria-label="Day name" style="font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:700">
       <span class="iconbtns"><button id="du-${di}" data-act="dayUp" data-d="${di}" aria-label="Move day up" ${di===0?"disabled":""}>↑</button><button id="dr-${di}" data-act="dayRm" data-d="${di}" aria-label="Delete day">${confirmKey==="dayrm"+di?"Delete?":"✕"}</button></span></div>
       ${items || `<p class="hint">No exercises yet.</p>`}
+      ${ssFixPanel(d, di)}
       <button data-act="pick" data-target="day" data-d="${di}" id="addEx-${di}">+ Add exercises</button></div>`;
   }).join("");
   const tpl = `<details class="panel" ${state.days.length?"":"open"}><summary style="cursor:pointer;font-weight:800">Start from a template</summary>
@@ -2604,8 +2682,11 @@ document.addEventListener("click", e => {
     case "swapBack": swap.chosen = null; render(); break;
     case "swapApply": applySwap(swap.chosen, b.dataset.v === "1"); break;
     case "swapSearch": picker = { target:"swap", q:"", m:exById(state.active.items[swap.x].ex).m, e:"All", sel:[] }; render(); break;
-    case "sxSS": { const it = state.active.items[x]; it.ss = !it.ss; save(); render(); break; }
-    case "piSS": { const it = state.days[d].items[x]; it.ss = !it.ss; save(); render(); break; }
+    case "sxSS": { const it = state.active.items[x]; it.ss = !it.ss; save(); render(); if (it.ss){ const w = ssWarnText(exById(it.ex), exById(state.active.items[x+1].ex)); if (w) showToast(`⚠️ ${w}`); } break; }
+    case "piSS": { const it = state.days[d].items[x]; it.ss = !it.ss; ssFix = null; save(); render(); if (it.ss){ const w = ssWarnText(exById(it.ex), exById(state.days[d].items[x+1].ex)); if (w) showToast(`⚠️ ${w}`); } break; }
+    case "ssFixGo": ssFix = { d, res:repairDay(state.days[d]) }; render(); break;
+    case "ssFixNo": ssFix = null; render(); break;
+    case "ssFixApply": { if (ssFix && ssFix.res && ssFix.res.items){ state.days[ssFix.d].items = ssFix.res.items; showToast("Pairs updated. Your next workout uses them."); } ssFix = null; save(); render(); break; }
     case "swapMode": state.swapMode = b.dataset.v; save(); render(); break;
     case "addSet": { const it = state.active.items[x], l = it.sets[it.sets.length-1]; it.sets.push({ w:l?l.w:"", r:l?l.r:"", done:false }); save(); render(); break; }
     case "rmSet": { const it = state.active.items[x]; if (it.sets.length > 1) it.sets.pop(); save(); render(); break; }
