@@ -658,7 +658,10 @@ function exposures(exId){
     const score = perfScore(work, ex), day = dayScore(ex, work);
     let improved = !prior.length || score > bestScore * 1.005 || (ex.t !== "time" && day > bestDay);
     if (!improved){ const seen = []; improved = work.some(q => { const hit = setPRs(ex, q, prior.concat(seen)).length > 0; seen.push(q); return hit; }); }
-    out.push({ at:s.end, dayId:s.dayId, work, score, day, improved });
+    const pos = s.items.indexOf(it), inSS = it.ss || (pos > 0 && s.items[pos-1].ss), known = work.filter(x => x.rir != null);
+    const rs = inSS ? [] : it.sets.filter((x, k) => k > 0 && x.done && x.tag !== "W" && x.rest != null && x.rest > 0).map(x => x.rest);
+    out.push({ at:s.end, dayId:s.dayId, work, score, day, improved, pos, of:s.items.length, rest:rs.length ? avg(rs) : null, restT:it.rest || null,
+      rir:known.length ? avg(known.map(x => x.rir)) : null, bad:!!(s.ready && (s.ready.level === "rough" || s.ready.level === "off")), flag:(it.target && it.target.flag) || null });
     prior.push(...work); bestScore = Math.max(bestScore, score); bestDay = Math.max(bestDay, day); });
   return out;
 }
@@ -671,13 +674,13 @@ function analyzeBlock(b){
     work.forEach(x => { if (x.rir != null) rirs.push(x.rir); });
     const r = ex[it.ex] || (ex[it.ex] = { id:it.ex, m:e.m, t:e.t, list:[], sets:0 });
     const h = exposures(it.ex).find(x => x.at === s.end);
-    r.list.push({ at:s.end, score:perfScore(work, e), best:bestSet(work, e), improved:h ? h.improved : true }); r.sets += work.length;
+    r.list.push({ at:s.end, score:perfScore(work, e), best:bestSet(work, e), improved:h ? h.improved : true, bad:h ? h.bad : false }); r.sets += work.length;
   }));
   const list = Object.values(ex).map(r => {
     const L = r.list, n = L.length, k = Math.max(1, Math.min(2, Math.floor(n/2)));
     const first = avg(L.slice(0,k).map(x => x.score)), last = avg(L.slice(-k).map(x => x.score));
     const ch = n >= 2 && first > 0 ? (last - first) / first : null;
-    const stuck = n >= 4 && !L.slice(-3).some(x => x.improved);
+    const Lg = L.filter(x => !x.bad), stuck = Lg.length >= 4 && !Lg.slice(-3).some(x => x.improved);
     return { ...r, n, ch, stuck, trend:trendOf(ch), from:L[0].best, to:L[n-1].best };
   });
   const weeks = Math.max(1, new Set(S.map(s => weekOf(s.end))).size), mus = {};
@@ -693,7 +696,9 @@ const granFor = ex => U() === "kg" ? (ex.e === "KB" ? 4 : ex.e === "DB" ? 2 : 2.
 const roundTo = (w, st) => Math.max(st, Math.round(w / st) * st);
 // Double progression: add reps until every set reaches the top of the range, then add weight (upper body about
 // 5 lb, lower body about 10 lb, as the NSCA suggests) and work back up. The reference is the same day last week
-// when there is one, otherwise the latest session. Two sessions down in a row or three without a new best slows it.
+// when there is one, otherwise the latest session. Two sessions down in a row slows it. Three with no progress of any
+// kind gets a diagnosis, one fix at a time: push harder (3+ reps left), rest fully (short rests), move it earlier
+// (late in the workout), then a 10% reset. Stalling again after the reset suggests a swap. Rough or off days don't count.
 function targetFor(tpl, ctx){
   const ex = exById(tpl.ex), n = Math.max(1, tpl.sets || 3), lo = tpl.lo || 8, hi = Math.max(lo, tpl.hi || 12), rir = ctx.rir;
   const fill = (w, r, kind, why) => ({ kind, why, w, reps:Array.from({length:n}, (_,k) => Array.isArray(r) ? (r[k] != null ? r[k] : r[r.length-1]) : r) });
@@ -701,11 +706,19 @@ function targetFor(tpl, ctx){
   if (!H.length) return fill("", "", "new", ctx.intro ? `New exercise. Find a weight you could lift about ${hi+3} times and stop at ${lo}–${hi}, with 3–4 reps left.` : `First time. Pick a weight you can lift ${lo}–${hi} times with 1–3 reps left.`);
   const latest = H[H.length-1], ref = [...H].reverse().find(h => h.dayId && h.dayId === ctx.dayId && Date.now() - h.at < 21*dayMs) || latest;
   const ago = ref === latest ? "last time" : "last week";
-  const sc = H.slice(-3).map(h => h.score);
-  const L3 = H.slice(-3), dy = L3.map(h => h.day);
+  // Workouts you marked rough or off before starting don't count toward a stall or a slide.
+  const G = H.filter(h => !h.bad), L3 = G.slice(-3), sc = L3.map(h => h.score), dy = L3.map(h => h.day);
   // slipping: best set AND total work both down two sessions in a row; stalled: no progress of any kind in 3 sessions
   const slipping = sc.length === 3 && sc[2] < sc[1] * .99 && sc[1] < sc[0] * .99 && (ex.t === "time" || (dy[2] < dy[1] && dy[1] < dy[0]));
-  const stalled = H.length >= 4 && !L3.some(h => h.improved);
+  // After a 10% reset, judge progress against the workouts since the reset, not the old best you're climbing back to.
+  const lastImp = H.map(h => h.improved).lastIndexOf(true), rsAt = H.map(h => h.flag === "reset").lastIndexOf(true), recovering = rsAt >= 0 && lastImp <= rsAt;
+  let stalled = G.length >= 4 && !L3.some(h => h.improved), restalled = false;
+  if (recovering){
+    const P = H.slice(rsAt).filter(h => !h.bad);
+    restalled = P.length >= 4 && P.slice(-3).every(h => { const before = P.slice(0, P.indexOf(h)); return h.score <= Math.max(...before.map(b => b.score)) * 1.005 && h.day <= Math.max(...before.map(b => b.day)); });
+    stalled = false;
+  }
+  const tried = f => L3.some(h => h.flag === f);   // each fix is offered once per stall before moving to the next
   const work = ref.work.some(s => s.tag !== "D") ? ref.work.filter(s => s.tag !== "D") : ref.work;
   const away = Math.round((Date.now() - latest.at) / (7*dayMs));
   if (ex.t === "time"){
@@ -732,14 +745,28 @@ function targetFor(tpl, ctx){
       : fill(W, topR.map(r => r + 1), "same", `You've earned a jump, but not on an off day. Stay at ${fmtW(W)} and add a rep.`);
   if (topR.every(r => r >= hi)){
     for (let j = topR.every(r => r >= hi + 2) ? 2 : 1; j >= 1; j--){ const w = roundTo(W + st*j, gr), r = Math.min(hi, repsAt(w)); if (w > W && r >= lo) return fill(w, r, "up", `Up ${fmtW(w - W)}: you hit ${hi}+ reps on every set ${ago}. Aim for ${r} or more.`); }
-    return fill(W, hi + 1, "same", `The next jump (+${fmtW(st)}) is big from ${fmtW(W)}. Stay here and push past ${hi} reps first.`);
+    const jp = Math.round(st / W * 100), cap = hi + 3;
+    if (topR.every(r => r >= cap)) return fill(W, cap, "same", `You've outgrown ${fmtW(W)}, but ${fmtW(W + st)} is a ${jp}% jump. Keep doing ${cap}s here with a slow 3-second lowering, add a set, or swap to a cable or machine version where the weight goes up in smaller steps.`);
+    return fill(W, topR.map(r => Math.min(cap, r + 1)), "same", `${fmtW(W + st)} would be a ${jp}% jump from ${fmtW(W)}. Earn it first: add a rep to each set, up to ${cap}.`);
   }
   if (topR[0] < lo){
     const prev = H.length >= 2 ? H[H.length-2] : null, prevLow = prev && prev.work.some(s => (num(s.w) || 0) >= W && (num(s.r) || 0) < lo);
     if (prevLow || slipping){ const w = roundTo(W - st, gr); return fill(w, lo, "down", `Down to ${fmtW(w)}: you've been under ${lo} reps. Land in your ${lo}–${hi} range, then build back up.`); }
     return fill(W, lo, "same", `Same weight. Aim for at least ${lo} reps on every set.`);
   }
-  if (stalled){ const w = roundTo(W * .9, gr); return fill(w, Math.min(hi, Math.max(lo, repsAt(w))), "down", `No progress of any kind in 3 sessions: no heavier set, no extra reps, no more total work. Take about 10% off, beat your reps, and build back up.`); }
+  const flagged = (t, f) => Object.assign(t, { flag:f });
+  if (restalled) return flagged(fill(W, topR.map(r => Math.min(hi, r + 1)), "same", `Stalled again, even after backing off. Time for a new exercise: tap ⇄ Swap and choose “Replace it in my day too”. Today, try to beat ${ago} by a rep.`), "swap");
+  if (stalled){
+    const N = "No progress in your last 3 workouts on this one";
+    const rirs = L3.map(h => h.rir).filter(v => v != null), rr = rirs.length ? avg(rirs) : null;
+    if (rr != null && rr >= 3 && !tried("push")) return flagged(fill(W, topR.map(r => Math.min(hi + 2, r + 2)), "same", `${N}, but you've been stopping with about ${Math.round(rr)} reps left. That's not a stall, that's room. Same weight: push to 1–2 reps left on every set.`), "push");
+    const rests = L3.filter(h => h.rest != null && h.restT), short = rests.length >= 2 && avg(rests.map(h => h.rest / h.restT)) < .8;
+    if (short && !tried("rest")){ const ar = avg(rests.map(h => h.rest)), tg = rests[rests.length-1].restT; return flagged(fill(W, topR, "same", `${N}, and you've been resting about ${fmtTime(ar)} between sets instead of ${fmtTime(tg)}. Short rests cost reps. Same weight: rest the full ${fmtTime(tg)} today before backing off.`), "rest"); }
+    const late = L3.filter(h => h.of >= 4 && h.pos >= Math.ceil(h.of / 2)).length >= 2;
+    if (late && !tried("late")){ const h = L3[L3.length-1]; return flagged(fill(W, topR, "same", `${N}, and it's been exercise ${h.pos + 1} of ${h.of}, when you're already tired. Before backing off, do it earlier: move it up on the Program tab, or do it first today.`), "late"); }
+    const w = roundTo(W * .9, gr);
+    return flagged(fill(w, Math.min(hi, Math.max(lo, repsAt(w))), "down", `${N}: no heavier set, no extra reps, no more total work${rr != null && rr <= 1 ? `, and you've been close to failure` : ""}. That's fatigue. Take about 10% off, beat your reps, and build back up.`), "reset");
+  }
   if (slipping) return fill(W, topR, "same", `Down two sessions in a row, so fatigue may be building. Same weight: just match ${ago}.`);
   if (ctx.ready === "rough") return fill(W, topR, "same", `Rough day: same weight, just match ${ago}.`);
   const add = avgRir != null && avgRir >= 3 ? 2 : 1;
@@ -2496,7 +2523,7 @@ function buildSessionItem(tpl, ctx, exactSets){
   const ex = exById(tpl.ex), n = ctx.intro && !exactSets && (tpl.sets || 3) > 2 ? (tpl.sets || 3) - 1 : (tpl.sets || 3);
   const t = targetFor({ ...tpl, sets:n }, ctx), last = lastPerf(tpl.ex), lw = last && last.work.length ? String(last.work[0].w || "") : "";
   const sets = Array.from({length:n}, (_,k) => ({ w: t.w !== "" ? String(t.w) : (t.kind === "new" ? "" : lw), r: t.reps[k] !== "" && t.reps[k] != null ? String(t.reps[k]) : "", done:false }));
-  return { ex:tpl.ex, sets, targetSets:n, lo:tpl.lo, hi:tpl.hi, rest:tpl.rest || DEFAULTS[klass(ex)].rest, ss:!!tpl.ss, target:{ w:t.w, reps:t.reps, kind:t.kind, why:t.why } };
+  return { ex:tpl.ex, sets, targetSets:n, lo:tpl.lo, hi:tpl.hi, rest:tpl.rest || DEFAULTS[klass(ex)].rest, ss:!!tpl.ss, target:{ w:t.w, reps:t.reps, kind:t.kind, why:t.why, ...(t.flag ? { flag:t.flag } : {}) } };
 }
 function startSession(day, rd){
   const ctx = sessionCtx(day ? day.id : null);
@@ -2512,7 +2539,7 @@ function finishSession(){
   // PRs against everything before this workout
   const { prs, prk } = sessionPRs(a.items);
   const wasDue = blockInfo().due;
-  const sess = { id:a.id, dayId:a.dayId, dayName:a.dayName, start:a.start, end:Date.now(), ...(a.ready ? { ready:a.ready } : {}), items:a.items.map(it => it.target ? { ...it, target:{ w:it.target.w, reps:it.target.reps, kind:it.target.kind } } : it), prs, prk };
+  const sess = { id:a.id, dayId:a.dayId, dayName:a.dayName, start:a.start, end:Date.now(), ...(a.ready ? { ready:a.ready } : {}), items:a.items.map(it => it.target ? { ...it, target:{ w:it.target.w, reps:it.target.reps, kind:it.target.kind, ...(it.target.flag ? { flag:it.target.flag } : {}) } } : it), prs, prk };
   state.sessions.push(sess); state.active = null; state.timer = null;
   summary = { ...sess, blockDone: !wasDue && blockInfo().due ? state.block.n : 0 };
   save(); askPersist(); render(); window.scrollTo(0,0);
