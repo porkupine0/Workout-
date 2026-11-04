@@ -649,9 +649,17 @@ function perfScore(work, ex){
 }
 function bestSet(work, ex){ let b = null, bs = -1; work.forEach(s => { const v = perfScore([s], ex); if (v > bs){ bs = v; b = s; } }); return b ? fmtSet({ w:b.w, r:b.r }, ex.t) : ""; }
 const trendOf = c => c == null ? "new" : c >= .05 ? "up" : c >= .015 ? "steady" : c > -.02 ? "flat" : "down";
+// Each workout for an exercise, oldest first. "improved" means it beat everything before it on some measure:
+// best set, a weight, rep or 1RM record, or more total weight moved (total reps when unloaded). Matching the same
+// top set with more good sets behind it counts as progress, so it doesn't read as a stall.
 function exposures(exId){
-  const ex = exById(exId), out = [];
-  state.sessions.forEach(s => { const it = s.items.find(x => x.ex === exId); if (!it) return; const work = it.sets.filter(x => x.done && x.tag !== "W"); if (work.length) out.push({ at:s.end, dayId:s.dayId, work, score:perfScore(work, ex) }); });
+  const ex = exById(exId), out = [], prior = []; let bestScore = 0, bestDay = 0;
+  state.sessions.forEach(s => { const it = s.items.find(x => x.ex === exId); if (!it) return; const work = it.sets.filter(x => x.done && x.tag !== "W"); if (!work.length) return;
+    const score = perfScore(work, ex), day = dayScore(ex, work);
+    let improved = !prior.length || score > bestScore * 1.005 || (ex.t !== "time" && day > bestDay);
+    if (!improved){ const seen = []; improved = work.some(q => { const hit = setPRs(ex, q, prior.concat(seen)).length > 0; seen.push(q); return hit; }); }
+    out.push({ at:s.end, dayId:s.dayId, work, score, day, improved });
+    prior.push(...work); bestScore = Math.max(bestScore, score); bestDay = Math.max(bestDay, day); });
   return out;
 }
 // What happened in a block: each exercise's change from its first to its last sessions, and each muscle's sets and trend
@@ -662,13 +670,14 @@ function analyzeBlock(b){
     const e = exById(it.ex), work = it.sets.filter(x => x.done && x.tag !== "W"); if (!work.length) return;
     work.forEach(x => { if (x.rir != null) rirs.push(x.rir); });
     const r = ex[it.ex] || (ex[it.ex] = { id:it.ex, m:e.m, t:e.t, list:[], sets:0 });
-    r.list.push({ at:s.end, score:perfScore(work, e), best:bestSet(work, e) }); r.sets += work.length;
+    const h = exposures(it.ex).find(x => x.at === s.end);
+    r.list.push({ at:s.end, score:perfScore(work, e), best:bestSet(work, e), improved:h ? h.improved : true }); r.sets += work.length;
   }));
   const list = Object.values(ex).map(r => {
     const L = r.list, n = L.length, k = Math.max(1, Math.min(2, Math.floor(n/2)));
     const first = avg(L.slice(0,k).map(x => x.score)), last = avg(L.slice(-k).map(x => x.score));
     const ch = n >= 2 && first > 0 ? (last - first) / first : null;
-    const stuck = n >= 4 && Math.max(...L.slice(-3).map(x => x.score)) <= Math.max(...L.slice(0,-3).map(x => x.score)) * 1.005;
+    const stuck = n >= 4 && !L.slice(-3).some(x => x.improved);
     return { ...r, n, ch, stuck, trend:trendOf(ch), from:L[0].best, to:L[n-1].best };
   });
   const weeks = Math.max(1, new Set(S.map(s => weekOf(s.end))).size), mus = {};
@@ -693,8 +702,10 @@ function targetFor(tpl, ctx){
   const latest = H[H.length-1], ref = [...H].reverse().find(h => h.dayId && h.dayId === ctx.dayId && Date.now() - h.at < 21*dayMs) || latest;
   const ago = ref === latest ? "last time" : "last week";
   const sc = H.slice(-3).map(h => h.score);
-  const slipping = sc.length === 3 && sc[2] < sc[1] * .99 && sc[1] < sc[0] * .99;
-  const stalled = H.length >= 4 && Math.max(...sc) <= Math.max(...H.slice(0,-3).map(h => h.score)) * 1.005;
+  const L3 = H.slice(-3), dy = L3.map(h => h.day);
+  // slipping: best set AND total work both down two sessions in a row; stalled: no progress of any kind in 3 sessions
+  const slipping = sc.length === 3 && sc[2] < sc[1] * .99 && sc[1] < sc[0] * .99 && (ex.t === "time" || (dy[2] < dy[1] && dy[1] < dy[0]));
+  const stalled = H.length >= 4 && !L3.some(h => h.improved);
   const work = ref.work.some(s => s.tag !== "D") ? ref.work.filter(s => s.tag !== "D") : ref.work;
   const away = Math.round((Date.now() - latest.at) / (7*dayMs));
   if (ex.t === "time"){
@@ -728,7 +739,7 @@ function targetFor(tpl, ctx){
     if (prevLow || slipping){ const w = roundTo(W - st, gr); return fill(w, lo, "down", `Down to ${fmtW(w)}: you've been under ${lo} reps. Land in your ${lo}–${hi} range, then build back up.`); }
     return fill(W, lo, "same", `Same weight. Aim for at least ${lo} reps on every set.`);
   }
-  if (stalled){ const w = roundTo(W * .9, gr); return fill(w, Math.min(hi, Math.max(lo, repsAt(w))), "down", `No new best in 3 sessions. Take about 10% off, beat your reps, and build back up.`); }
+  if (stalled){ const w = roundTo(W * .9, gr); return fill(w, Math.min(hi, Math.max(lo, repsAt(w))), "down", `No progress of any kind in 3 sessions: no heavier set, no extra reps, no more total work. Take about 10% off, beat your reps, and build back up.`); }
   if (slipping) return fill(W, topR, "same", `Down two sessions in a row, so fatigue may be building. Same weight: just match ${ago}.`);
   if (ctx.ready === "rough") return fill(W, topR, "same", `Rough day: same weight, just match ${ago}.`);
   const add = avgRir != null && avgRir >= 3 ? 2 : 1;
@@ -1313,7 +1324,7 @@ function blockCard(){
     }
     if (!b.ext && deep.length >= 3 && stuck / deep.length >= .5)
       return `<div class="panel due"><span class="eyebrow">Block ${b.n} · week ${I.week} of ${b.weeks}</span><h3>Most of your lifts have stalled</h3>
-        <p class="hint">${stuck} of ${deep.length} lifts haven't beaten their best in their last 3 sessions. Refreshing early is a good idea.</p>
+        <p class="hint">${stuck} of ${deep.length} lifts haven't made progress of any kind (weight, reps or total work) in their last 3 sessions. Refreshing early is a good idea.</p>
         <div class="btnrow"><button data-act="openReview" id="openReviewEarly">Review my block now</button></div></div>`;
   }
   const rir = effortFor(I.week, b.weeks, b.intro), left = Math.max(1, b.weeks - I.done);
@@ -2268,7 +2279,7 @@ function coachView(){
 // ---------- the next block, planned by Claude ----------
 function blockContent(){
   const P = review.draft || (review.draft = planNext({ days:review.days, seed:review.seed })), A = P.A, b = state.block, g = state.goals, sch = P.scheme;
-  const lifts = A.ex.filter(r => LIFT_MUSCLES.includes(r.m)).map(r => `- ${exById(r.id).n} (${r.m}): ${plural(r.n, "session")}, ${r.from} → ${r.to}${r.ch != null ? ` (${pct(r.ch)})` : ""}, ${TREND[r.trend].toLowerCase()}${r.stuck ? ", no new best in its last 3 sessions" : ""}`).join("\n");
+  const lifts = A.ex.filter(r => LIFT_MUSCLES.includes(r.m)).map(r => `- ${exById(r.id).n} (${r.m}): ${plural(r.n, "session")}, ${r.from} → ${r.to}${r.ch != null ? ` (${pct(r.ch)})` : ""}, ${TREND[r.trend].toLowerCase()}${r.stuck ? ", no progress of any kind (weight, reps or total work) in its last 3 sessions" : ""}`).join("\n");
   const mus = LIFT_MUSCLES.filter(m => A.mus[m]).map(m => `${m} ${A.mus[m].perWeek.toFixed(1)} a week (${TREND[A.mus[m].trend].toLowerCase()})`).join("; ");
   const mins = A.S.length ? Math.round(avg(A.S.map(s => (s.end - s.start) / 60000))) : 0, prev = state.blocks[state.blocks.length - 1];
   const draft = P.days.map((d, di) => `${d.name}: ${d.items.map((s, xi) => { const x = exById(pickFor(di, xi).id); return `${x.n} ${s.sets}×${s.lo}–${s.hi}${x.t === "time" ? "s" : ""}`; }).join(", ")}`).join("\n");
