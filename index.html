@@ -364,6 +364,16 @@ function overlapOf(a, b){
   return { v:total, m:top, same:top && A[top] === 1 && B[top] === 1 };
 }
 const tooClose = o => o.v >= .5 && o.m;
+// Weekly set credit: a set counts fully for the muscle it mainly trains, and half for a big helper (rows → biceps, presses →
+// triceps, squats and hinges → glutes), the way recent volume research counts indirect sets (Pelland 2024).
+const HELPER_TO = { Chest:"Chest", Back:"Back", Biceps:"Biceps", Triceps:"Triceps", Delts:"Shoulders", Quads:"Quads", Hamstrings:"Hamstrings", Glutes:"Glutes", Calves:"Calves", Core:"Core" };
+function creditOf(ex){
+  if (!ex || !LIFT_MUSCLES.includes(ex.m) || ex.t === "time") return ex && LIFT_MUSCLES.includes(ex.m) ? { [ex.m]:1 } : {};
+  const out = { [ex.m]:1 }, L = LOADS[patternOf(ex)] || {};
+  Object.entries(L).forEach(([k, w]) => { const m = HELPER_TO[k]; if (m && m !== ex.m && w >= .5 && LIFT_MUSCLES.includes(m)) out[m] = Math.max(out[m] || 0, .5); });
+  return out;
+}
+const fmtSets = v => (Math.round(v * 2) / 2).toString().replace(/\.0$/, "");
 function ssWarnText(a, b){
   const o = overlapOf(a, b); if (!tooClose(o)) return "";
   const w = (MUSCLE_WORD[o.m] || o.m).toLowerCase();
@@ -473,11 +483,21 @@ const GEAR = [["hack","Hack squat",/Hack Squat/],["pendulum","Pendulum squat",/P
   ["abduct","Hip abduction machine",/Abduction Machine|Adduction Machine/],["preacher","Preacher bench",/Preacher/],["latmach","Lateral raise machine",/Machine Lateral Raise/],
   ["pecdeck","Pec deck / rear-delt machine",/Pec Deck|Reverse Pec|Machine Rear Delt|Machine Fly/],["assist","Assisted pull-up / dip machine",/^Assisted (Pull-Up|Dip|Chin)/],
   ["backext","Back extension / GHD",/Glute-Ham|Back Extension|Hyperextension|Reverse Hyper/],["calfmach","Calf raise machines",/Seated Calf Raise|Donkey Calf|Standing Calf Raise$/],
-  ["landmine","Landmine",/Landmine/],["trapbar","Trap bar",/Trap Bar/],["dips","Dip station",/Parallel Bar Dip|^Triceps Dip|^Dip/],["pullbar","Pull-up bar",/Pull-Up|Chin-Up|Hanging|Dead Hang|Toes to Bar/]];
-const gearOK = x => !(state.goals.noGear || []).some(k => { const g = GEAR.find(q => q[0] === k); return g && (g[3] ? x.e === g[3] : g[2].test(x.n)); });
+  ["landmine","Landmine",/Landmine/],["trapbar","Trap bar",/Trap Bar/],["dips","Dip station",/Parallel Bar Dip|^Triceps Dip|^Dip/],["pullbar","Pull-up bar",/^(?!Assisted ).*(Pull-Up|Chin-Up|Hanging|Dead Hang|Toes to Bar)/]];
+const gearOK = x => { const n = state.goals.noGear || []; return !n.length || !labelOf(x).gear.some(k => n.includes(k)); };
 // One side at a time: named single-arm/leg moves, plus anything you switch on yourself (like Bayesian curls one arm at a time)
-const UNI_RE = /Single-Arm|Single-Leg|One-Arm|One-Leg|Bulgarian|Split Squat|Lunge|Step-Up|Pistol|Cossack|Skater|Shrimp|Suitcase|Copenhagen|Side Plank|Kickstand|B-Stance|Lean-Away|Concentration Curl|Cable Lateral Raise|Glute Kickback|Cable Hip Abduction|^Dumbbell Row$|Meadows Row|Kroc Row/;
-const isUni = ex => state.uni[ex.id] != null ? state.uni[ex.id] : UNI_RE.test(ex.n);
+const UNI_RE = /Single-Arm|Single-Leg|One-Arm|One-Leg|Bulgarian|Split Squat|Lunge|Step-Up|Pistol|Cossack|Skater|Shrimp|Suitcase|Copenhagen|Side Plank|Kickstand|B-Stance|Lean-Away|Concentration Curl|Cable Lateral Raise|Glute Kickback|Cable Kickback|Cable Hip Abduction|^Dumbbell Row$|Meadows Row|Kroc Row/;
+// Each exercise's labels: one side at a time (uni), equipment pieces it needs (gear), and for curls where the elbows are (arm).
+// Built-in exercises get them from their names once (audited); Claude-described exercises carry them explicitly.
+function labelOf(x){
+  if (x._lab) return x._lab;
+  const lab = { uni:x.uni != null ? !!x.uni : UNI_RE.test(x.n),
+    gear:Array.isArray(x.gear) ? x.gear : GEAR.filter(g => g[3] ? x.e === g[3] : g[2].test(x.n)).map(g => g[0]),
+    arm:x.arm !== undefined ? x.arm : x.m === "Biceps" ? (ARM_FRONT.test(x.n) ? "front" : ARM_BACK.test(x.n) ? "back" : null) : null };
+  Object.defineProperty(x, "_lab", { value:lab, enumerable:false, configurable:true });
+  return lab;
+}
+const isUni = ex => state.uni[ex.id] != null ? state.uni[ex.id] : labelOf(ex).uni;
 const SIDE = { L:"Left", R:"Right" };
 // the side you led with the last time you did this exercise
 function lastFirst(exId){ for (let i = state.sessions.length - 1; i >= 0; i--){ const it = state.sessions[i].items.find(q => q.ex === exId && q.first); if (it) return { side:it.first, at:state.sessions[i].end }; } return null; }
@@ -760,6 +780,37 @@ function blockInfo(){
 }
 // How hard working sets should be, as reps in reserve: easy in the learning week, hardest in the last week
 function effortFor(week, weeks, intro){ if (intro && week === 1) return [3,4]; if (week >= weeks) return [0,1]; if (week <= (intro ? 3 : 2)) return [2,3]; return [1,2]; }
+// ---------- Whole-body fatigue ----------
+// Most lifts sliding at once over 2 weeks, with check-ins worse than the month before (or several rough days), points to
+// overall fatigue rather than any one exercise. A lighter week clears it faster than backing off lifts one at a time.
+const LV_PTS = { great:2, normal:0, off:-2, rough:-4, recovery:-6 };
+const lightOn = () => !!(state.light && Date.now() < state.light.until);
+function fatigueCheck(){
+  const now = Date.now(), win = now - 14*dayMs, S = state.sessions.filter(x => x.end > win && !x.light);
+  if (S.length < 3 || lightOn() || (state.light && state.light.start > now - 28*dayMs) || blockInfo().intro) return null;
+  const ids = [...new Set(S.flatMap(x => x.items.map(it => it.ex)))].filter(id => { const x = exById(id); return LIFT_MUSCLES.includes(x.m) && x.t !== "time"; });
+  let judged = 0; const down = [];
+  ids.forEach(id => { const H = exposures(id).filter(h => !h.light), recent = H.filter(h => h.at > win), prior = H.filter(h => h.at <= win).slice(-3);
+    if (!recent.length || prior.length < 2) return; judged++;
+    if (avg(recent.map(h => h.score)) < avg(prior.map(h => h.score)) * .97) down.push(exById(id).n); });
+  if (judged < 4) return null;
+  const lv = x => !x.ready ? null : x.ready.sleep in READY_PTS.sleep ? readyScore(x.ready) : LV_PTS[x.ready.level] ?? null;
+  const rNow = S.map(lv).filter(v => v != null), rPrev = state.sessions.filter(x => x.end <= win && x.end > win - 28*dayMs).map(lv).filter(v => v != null);
+  const readyDown = rNow.length >= 2 && rPrev.length >= 2 && avg(rNow) <= avg(rPrev) - 1.5;
+  const roughs = S.filter(x => x.end > now - 7*dayMs && x.ready && ["rough","recovery"].includes(x.ready.level)).length, share = down.length / judged;
+  return share >= .5 && (readyDown || roughs >= 2 || share >= .7) ? { judged, down, readyDown, roughs } : null;
+}
+// ---------- RIR calibration ----------
+// Every couple of weeks, the last set of one machine or cable isolation exercise goes to failure. You guess first how many
+// reps you'd have left at the target; the gap between guess and reality corrects your logged reps in reserve.
+const calDue = () => state.calOn !== false && state.sessions.length >= 6 && Date.now() - ((state.calib || []).slice(-1)[0] || { at:0 }).at > 14*dayMs;
+function calBias(){ const c = (state.calib || []).slice(-6); if (c.length < 2) return 0; return Math.max(-2, Math.min(4, Math.round(avg(c.map(x => x.actual - x.guess)) * 2) / 2)); }
+function pickCalibration(a, ctx, rd){
+  if (!calDue() || ctx.intro || ctx.lighter || (rd && ["rough","recovery","off"].includes(rd.level))) return;
+  const ok = a.items.map((it, i) => ({ it, i, x:exById(it.ex) })).filter(({ it, i, x }) => x.t !== "time" && klass(x) === "iso" && ["MA","CA"].includes(x.e) && !isAssisted(x) && !it.ss && !(i > 0 && a.items[i-1].ss) && it.sets.length >= 2);
+  const pick = ok[ok.length - 1]; if (!pick) return;
+  pick.it.cal = true; pick.it.sets[pick.it.sets.length - 1].tag = "F";
+}
 function sessionCtx(dayId){ const I = blockInfo(); return { dayId, week:I.week, weeks:I.b.weeks, intro:I.intro, rir:effortFor(I.week, I.b.weeks, I.b.intro) }; }
 
 // One number per workout for an exercise, to compare sessions: estimated 1RM, best reps (bodyweight) or longest hold
@@ -793,7 +844,7 @@ function exposuresRaw(exId){
     const pos = s.items.indexOf(it), inSS = it.ss || (pos > 0 && s.items[pos-1].ss), known = work.filter(x => x.rir != null);
     const rs = inSS ? [] : it.sets.filter((x, k) => k > 0 && x.done && x.tag !== "W" && x.rest != null && x.rest > 0).map(x => x.rest);
     out.push({ at:s.end, dayId:s.dayId, work, score, day, improved, pos, of:s.items.length, rest:rs.length ? avg(rs) : null, restT:it.rest || null,
-      rir:known.length ? avg(known.map(x => x.rir)) : null, pre:pos > 0 && s.items[pos-1].ss ? { ex:s.items[pos-1].ex, ov:overlapOf(exById(s.items[pos-1].ex), ex).v } : null, bad:!!(s.ready && BAD_DAY.has(s.ready.level)), flag:(it.target && it.target.flag) || null });
+      rir:known.length ? avg(known.map(x => x.rir)) : null, pre:pos > 0 && s.items[pos-1].ss ? { ex:s.items[pos-1].ex, ov:overlapOf(exById(s.items[pos-1].ex), ex).v } : null, bad:!!((s.ready && BAD_DAY.has(s.ready.level)) || s.light), light:!!s.light, flag:(it.target && it.target.flag) || null });
     prior.push(...work); bestScore = Math.max(bestScore, score); bestDay = Math.max(bestDay, day); });
   return out;
 }
@@ -816,7 +867,8 @@ function analyzeBlock(b){
     return { ...r, n, ch, stuck, trend:trendOf(ch), from:L[0].best, to:L[n-1].best };
   });
   const weeks = Math.max(1, new Set(S.map(s => weekOf(s.end))).size), mus = {};
-  list.forEach(r => { if (!LIFT_MUSCLES.includes(r.m)) return; const M = mus[r.m] || (mus[r.m] = { m:r.m, sets:0, cw:0, w:0 }); M.sets += r.sets; if (r.ch != null){ M.cw += r.ch * r.sets; M.w += r.sets; } });
+  list.forEach(r => { if (!LIFT_MUSCLES.includes(r.m)) return; const M = mus[r.m] || (mus[r.m] = { m:r.m, sets:0, direct:0, cw:0, w:0 }); M.sets += r.sets; M.direct += r.sets; if (r.ch != null){ M.cw += r.ch * r.sets; M.w += r.sets; } });
+  list.forEach(r => Object.entries(creditOf(exById(r.id))).forEach(([m, w]) => { if (m === r.m || w >= 1) return; const M = mus[m] || (mus[m] = { m, sets:0, direct:0, cw:0, w:0 }); M.sets += r.sets * w; }));
   Object.values(mus).forEach(M => { M.ch = M.w ? M.cw / M.w : null; M.trend = trendOf(M.ch); M.perWeek = M.sets / weeks; });
   const calWeeks = Math.max(1, Math.ceil(((b.end || Date.now()) - b.start) / (7*dayMs)));
   return { S, weeks, ex:list, mus, rir:rirs.length ? avg(rirs) : null, adherence:Math.min(1, S.filter(s => s.dayId).length / (calWeeks * Math.max(1, state.days.length))) };
@@ -836,7 +888,7 @@ function targetFor(tpl, ctx){
   const fill = (w, r, kind, why) => ({ kind, why, w, reps:Array.from({length:n}, (_,k) => Array.isArray(r) ? (r[k] != null ? r[k] : r[r.length-1]) : r) });
   const H = exposures(tpl.ex);
   if (!H.length) return fill("", "", "new", ctx.intro ? `New exercise. Find a weight you could lift about ${hi+3} times and stop at ${lo}–${hi}, with 3–4 reps left.` : `First time. Pick a weight you can lift ${lo}–${hi} times with 1–3 reps left.`);
-  const latest = H[H.length-1], ref = [...H].reverse().find(h => h.dayId && h.dayId === ctx.dayId && Date.now() - h.at < 21*dayMs) || latest;
+  const latest = H[H.length-1], R2 = [...H].reverse(), ref = R2.find(h => !h.light && h.dayId && h.dayId === ctx.dayId && Date.now() - h.at < 21*dayMs) || R2.find(h => !h.light) || latest;
   const ago = ref === latest ? "last time" : "last week";
   // Workouts you marked rough or off before starting don't count toward a stall or a slide, unless you made progress anyway.
   const G = H.filter(h => !h.bad || h.improved), L3 = G.slice(-3), sc = L3.map(h => h.score), dy = L3.map(h => h.day);
@@ -851,6 +903,13 @@ function targetFor(tpl, ctx){
     stalled = false;
   }
   const tried = f => L3.some(h => h.flag === f);   // each fix is offered once per stall before moving to the next
+  const B = calBias();   // calibration: how many more reps you really have than you log
+  if (ctx.light){
+    const lw = ref.work, isT = ex.t === "time", A = isAssisted(ex), Wl = lw.some(q => num(q.w) > 0) ? (A ? Math.min(...lw.map(q => num(q.w) || 0)) : Math.max(...lw.map(q => num(q.w) || 0))) : "";
+    if (isT){ const T = Math.max(...lw.map(q => parseTime(q.r) || 0)); return fill(Wl, fmtTime(Math.max(lo, Math.round(T * .8 / 5) * 5)), "deload", "Lighter week: hold about 80% of your usual time."); }
+    const rr = lw.filter(q => Wl === "" || (num(q.w) || 0) === Wl).map(q => num(q.r) || 0);
+    return fill(Wl, Math.max(Math.min(lo, Math.max(...rr)), Math.min(...rr) - 2), "deload", `Lighter week: same ${A ? "assistance" : "weight"}, a couple of reps short of ${ago}, and stop 3–4 reps before failure. You'll come back stronger.`);
+  }
   const work = ref.work.some(s => s.tag !== "D") ? ref.work.filter(s => s.tag !== "D") : ref.work;
   const away = Math.round((Date.now() - latest.at) / (7*dayMs));
   if (ex.t === "time"){
@@ -880,13 +939,18 @@ function targetFor(tpl, ctx){
     return fill("", topR.map(r => Math.min(hi, r + 1)), "same", `Beat ${ago} by a rep on each set.`);
   }
   const st = stepFor(ex, W), gr = granFor(ex);
-  const rtf = Math.max(...top.map(s => (num(s.r) || 0) + (s.rir != null ? Math.min(s.rir, 4) : 1))), e1 = W * (1 + rtf/30);
+  const rtf = Math.max(...top.map(s => (num(s.r) || 0) + (s.rir != null ? Math.max(0, Math.min(s.rir + B, 6)) : 1))), e1 = W * (1 + rtf/30);
   const repsAt = w => Math.floor(30 * (e1 / w - 1)) - rir[1];   // reps at weight w, leaving this week's reserve
   if (ctx.intro){ const w = roundTo(W * .9, gr); return fill(w, Math.max(lo, Math.min(hi, repsAt(w))), "deload", `Learning week: about 90% of ${ago} (${fmtW(W)}). Stop 3–4 reps short of failure.`); }
   if (away >= 6){ const w = roundTo(W * .9, gr); return fill(w, lo, "down", `It's been ${away} weeks since you did this. Start around 90% of last time and build back up.`); }
   if (topR.every(r => r >= hi) && (ctx.ready === "rough" || ctx.ready === "off"))
     return ctx.ready === "rough" ? fill(W, topR, "same", `Rough day: hold at ${fmtW(W)} and match ${ago}. The jump can wait for a better day.`)
       : fill(W, topR.map(r => r + 1), "same", `You've earned a jump, but not on an off day. Stay at ${fmtW(W)} and add a rep.`);
+  // great day: within a rep of the top of the range is close enough to take the next weight
+  if (ctx.ready === "great" && !topR.every(r => r >= hi) && topR.every(r => r >= hi - 1)){
+    const w = roundTo(W + st, gr), r = Math.min(hi, Math.floor(30 * (e1 / w - 1)) - rir[0]);   // feeling great: the harder end of this week's effort
+    if (w > W && r >= lo) return fill(w, r, "up", `Great day: you were within a rep of ${hi} ${ago}, so take the jump to ${fmtW(w)} and aim for ${r}. If the first set moves slowly, drop back to ${fmtW(W)}.`);
+  }
   if (topR.every(r => r >= hi)){
     for (let j = topR.every(r => r >= hi + 2) ? 2 : 1; j >= 1; j--){ const w = roundTo(W + st*j, gr), r = Math.min(hi, repsAt(w)); if (w > W && r >= lo) return fill(w, r, "up", `Up ${fmtW(w - W)}: you hit ${hi}+ reps on every set ${ago}. Aim for ${r} or more.`); }
     const jp = Math.round(st / W * 100), cap = hi + 3;
@@ -902,7 +966,7 @@ function targetFor(tpl, ctx){
   if (restalled) return flagged(fill(W, topR.map(r => Math.min(hi, r + 1)), "same", `Stalled again, even after backing off. Time for a new exercise: tap ⇄ Swap and choose “Replace it in my day too”. Today, try to beat ${ago} by a rep.`), "swap");
   if (stalled){
     const N = "No progress in your last 3 workouts on this one";
-    const rirs = L3.map(h => h.rir).filter(v => v != null), rr = rirs.length ? avg(rirs) : null;
+    const rirs = L3.map(h => h.rir).filter(v => v != null), rr = rirs.length ? avg(rirs) + B : null;
     const pf = L3.filter(h => h.pre && h.pre.ov >= .5);
     if (pf.length >= 2 && !tried("pair")){ const a = exById(pf[pf.length-1].pre.ex), w = ssWarnText(a, ex); return flagged(fill(W, topR, "same", `${N}, but it's been second in a superset. ${w} That's leftover fatigue, not a true stall. Same weight today. On the Program tab, tap “Suggest better pairs” for this day, or do it on its own.`), "pair"); }
     if (rr != null && rr >= 3 && !tried("push")) return flagged(fill(W, topR.map(r => Math.min(hi + 2, r + 2)), "same", `${N}, but you've been stopping with about ${Math.round(rr)} reps left. That's not a stall, that's room. Same weight: push to 1–2 reps left on every set.`), "push");
@@ -1183,6 +1247,12 @@ function photoView(){
 // reminders on the Train tab: progress photos every 4 weeks, a backup every month
 function nudges(){
   const out = [], pd = photosDue();
+  if (lightOn()) out.push(`<div class="panel" style="gap:8px"><b>🌙 Lighter week until ${esc(new Date(state.light.until).toLocaleDateString(undefined, { weekday:"long" }))}</b><span class="hint">One set fewer, same weights, and stop 3–4 reps before failure. These workouts don't count toward stalls, and your next normal workout picks up from before the lighter week.</span>
+    <div class="btnrow"><button class="small ghost" data-act="lightEnd" id="lightEnd">End it early</button></div></div>`);
+  else if (!state.active && !(state.fatigueSnooze > Date.now())){ const f = fatigueCheck(); if (f) out.push(`<div class="panel" style="gap:8px"><b>📉 Most of your lifts are down at once</b>
+    <span class="hint">${f.down.length} of the ${f.judged} lifts you did in the last 2 weeks are below where they were before${f.readyDown ? ", and your check-ins are worse than last month" : f.roughs >= 2 ? `, with ${f.roughs} rough days this week` : ""}. When everything slides together it's usually overall fatigue (sleep, stress, a big week), not your program. A lighter week clears it faster than backing off lifts one at a time.</span>
+    <details><summary class="hint" style="cursor:pointer">Which lifts</summary><p class="hint">${f.down.map(esc).join(", ")}</p></details>
+    <div class="btnrow"><button class="small" data-act="lightGo" id="lightGo">Take a lighter week</button><button class="small ghost" data-act="fatigueLater" id="fatigueLater">Not now</button></div></div>`); }
   if (pd.due && (photos().length || state.sessions.length >= 4) && !(state.body.photoSnooze > Date.now()))
     out.push(`<div class="panel" style="gap:8px"><div class="row"><b class="grow">📸 Progress photos are due</b></div><span class="hint">${pd.last ? `Your last set was ${plural(pd.days, "day")} ago.` : "Your first set is the baseline everything is compared to."} Front, side and back take a minute.</span>
       <div class="btnrow"><button class="small" data-act="goPhotos" id="goPhotos">Take them</button><button class="small ghost" data-act="photoLater" id="photoLater">In 3 days</button></div></div>`);
@@ -1214,7 +1284,7 @@ const READY_MSG = {
   rough:"Rough day: weights hold and you leave an extra rep in reserve. The targets are a floor, not a ceiling: if you feel good once you're going, beat them.",
   off:"Not quite 100%: no weight jumps today, but reps can still go up.",
   normal:"Normal day: targets as planned.",
-  great:"Feeling great: if your first set moves fast, take the next weight jump." };
+  great:"Feeling great: lifts within a rep of the top of their range move up a weight today. If a first set moves slowly, drop back." };
 const READY_WORD = { recovery:"wiped out", rough:"rough", off:"off", normal:"normal", great:"great" };
 const BAD_DAY = new Set(["recovery","rough","off"]);
 function readyScore(a){ return READY_PTS.sleep[a.sleep] + READY_PTS.sore[a.sore] + READY_PTS.energy[a.energy]; }
@@ -1579,6 +1649,7 @@ function sessionView(){
       ${warmupHelp(it, ex, xi)}
       <div class="setlbl"><span>Set</span><span>${isT?"+Weight":"Weight"}</span><span>${isT?"Time":"Reps"}</span><span></span></div>
       <div class="sets">${rows}</div>
+      ${it.cal ? calBox(it, ex, xi) : ""}
       <div class="btnrow"><button class="small" data-act="addSet" data-x="${xi}" id="addset-${xi}">+ Add set</button><button class="small ghost" data-act="rmSet" data-x="${xi}" id="rmset-${xi}" ${it.sets.length<=1?"disabled":""}>Remove last set</button>
         <button class="small ghost" data-act="restTap" data-x="${xi}" id="rest-${xi}">⏱ Rest ${fmtTime(it.rest)}</button></div>
       <details class="more"><summary>Form tip, notes &amp; options</summary>
@@ -1597,6 +1668,7 @@ function sessionView(){
   return `<div class="sesshead"><div class="grow"><small>${esc(a.dayName)}${w ? ` · week ${Math.min(w.week, w.weeks)} of ${w.weeks}` : ""}</small><span class="clock num" id="sessClock">${fmtTime((Date.now()-a.start)/1000)}</span></div><span class="num" style="font-weight:700">${done}/${total} sets</span></div>
     ${a.ready && a.ready.level !== "normal" ? `<p class="${a.ready.level === "rough" || a.ready.level === "recovery" ? "err" : a.ready.level === "great" ? "ok" : "hint"}" style="margin:-4px 0 0">${READY_MSG[a.ready.level]}</p>` : ""}
     ${a.coach ? `<p class="notepre" style="margin:-4px 4px 0">🤖 ${esc(a.coach)}</p>` : ""}
+    ${a.light ? `<p class="hint" style="margin:-4px 4px 0">🌙 Lighter week: one set fewer, same weights, stop 3–4 reps before failure.</p>` : ""}
     ${w ? `<p class="hint" style="margin:-6px 4px 0">${w.intro ? "Learning week: one set fewer per exercise. Stop 3–4 reps short of failure and find your working weights." : w.week >= w.weeks ? "Last week of the block: take working sets to 0–1 reps short of failure." : `This week: stop working sets ${w.rir[0]}–${w.rir[1]} reps short of failure.`}</p>` : ""}
     ${items || `<p class="hint">No exercises yet. Add some below.</p>`}
     <button data-act="pick" data-target="session" id="addExSess">+ Add exercise</button>
@@ -1606,6 +1678,15 @@ function sessionView(){
     <p class="hint">Tap ✓ after each set and the rest timer starts on its own. Everything saves as you go, so it's safe to close the app mid-workout.</p>`;
 }
 
+function calBox(it, ex, xi){
+  const s = it.sets[it.sets.length - 1], tr = calTarget(it);
+  if (s.done && s.calRes) return `<p class="hint" style="font-size:13px">🎯 Calibration: you guessed ${s.calRes.guess} left at ${tr}, and you actually had ${s.calRes.actual}. ${s.calRes.actual - s.calRes.guess >= 2 ? "You're stopping earlier than you think: the app adds the difference when it sets targets." : s.calRes.actual - s.calRes.guess <= -1 ? "You had less in the tank than you thought." : "Good read."}</p>`;
+  if (s.done) return "";
+  return `<div class="panel" style="background:var(--surface-2);gap:6px;padding:10px"><b style="font-size:14px">🎯 Calibration set: your last set goes to failure</b>
+    <span class="hint" style="font-size:13px">Before you start it, guess: if you stopped at ${tr} reps, how many more could you do? Then keep going until you can't, and log every rep. It keeps your reps-in-reserve honest.</span>
+    <div class="chips">${[0,1,2,3,4,5].map(v => `<button class="chip" data-act="calGuess" data-x="${xi}" data-v="${v}" id="cal-${xi}-${v}" aria-pressed="${s.guess === v}">${v === 5 ? "5+" : v}</button>`).join("")}</div></div>`;
+}
+const calTarget = it => { const r = it.target && it.target.reps ? num(it.target.reps[it.sets.length - 1]) : 0; return r || it.hi || 12; };
 function targetLine(it, ex){
   const t = it.target, n = it.targetSets || t.reps.length, reps = t.reps.slice(0, n);
   const what = t.kind === "new" ? "find your weight" : ex.t === "time" ? `${reps.join(", ")}${t.w ? ` with ${t.w} ${U()}` : ""}` : t.w !== "" ? `${t.w} ${U()} × ${reps.join(", ")}` : `${reps.join(", ")} reps`;
@@ -1809,13 +1890,13 @@ function progressView(){
   </svg></div>` + cardioChart();
   // muscles, last 30 days
   const week = S.filter(s => s.end > now - 7*dayMs), mc = {};
-  week.forEach(s => s.items.forEach(it => { const ex = exById(it.ex); if (ex.t === "time" || ["Cardio","Mobility","Full body"].includes(ex.m)) return; const n = it.sets.filter(x=>x.done && x.tag !== "W").length; if (n){ mc[ex.m] = (mc[ex.m]||0) + n; } }));
+  week.forEach(s => s.items.forEach(it => { const ex = exById(it.ex); if (ex.t === "time" || ["Cardio","Mobility","Full body"].includes(ex.m)) return; const n = it.sets.filter(x=>x.done && x.tag !== "W").length; if (n) Object.entries(creditOf(ex)).forEach(([m, w]) => { mc[m] = (mc[m]||0) + n * w; }); }));
   const lifting = MUSCLES.filter(m => !["Cardio","Mobility","Full body","Forearms"].includes(m));
   const scaleMax = Math.max(24, ...Object.values(mc));
   const muscles = `<div class="panel"><div class="row"><h3 class="grow">Hard sets per muscle, last 7 days</h3><span class="hint">target 10–20</span></div>
     ${lifting.map(m => { const v = mc[m]||0, st = v >= 10 && v <= 20 ? "on target" : v > 20 ? "above" : v ? "under" : "none";
       return `<div class="hbar num" title="${m}: ${v} sets, ${st}"><span>${m}</span><span class="t"><span class="band" style="left:${10/scaleMax*100}%;width:${10/scaleMax*100}%"></span><span class="fill" style="display:block;height:100%;width:${v/scaleMax*100}%;background:var(--accent);border-radius:0 4px 4px 0"></span></span><span style="text-align:right;${v>=10&&v<=20?"color:var(--good);font-weight:800":""}">${v}</span></div>`; }).join("")}
-    <p class="hint">The green zone is 10–20 working sets. Warm-ups aren't counted. Most people grow best somewhere in that range.</p></div>`;
+    <p class="hint">The green zone is 10–20 working sets. Warm-ups aren't counted. A set counts half for a muscle that helps a lot (rows for biceps, presses for triceps, squats for glutes). Most people grow best somewhere in that range.</p></div>`;
   // records
   const recIds = [...new Set(S.flatMap(s => s.items.filter(it => workSets(it.sets).length).map(it => it.ex)))];
   const recs = recIds.map(id => { const ex = exById(id), h = prHistory(id), P = h.sets.map(q => ({ w:num(q.w) || 0, r:num(q.r) || 0, t:parseTime(q.r) || 0 }));
@@ -1827,7 +1908,12 @@ function progressView(){
     return { id, ex, as, top, topR:Math.max(0, ...P.filter(q => q.w === top).map(q => q.r)), e1, day:bestDay ? dayLabel(ex, bestDay).replace("Best day: ", "") : "–" };
   }).sort((a, b) => (b.e1 || 0) - (a.e1 || 0) || a.ex.n.localeCompare(b.ex.n));
   const prList = recs.map(r => [r.id]);
-  const prTable = `<div class="panel"><h3>Personal records</h3>${recs.length?`<div class="tablewrap"><table class="st"><thead><tr><th>Exercise</th><th>Heaviest</th><th>Est. 1RM</th><th>Best day</th></tr></thead><tbody>${recs.map(r=>`<tr><td>${esc(r.ex.n)}</td>${r.ex.t==="time"?`<td>${fmtTime(r.hold)} hold</td><td>–</td><td>–</td>`:`<td>${r.as?(r.top?`${+r.top.toFixed(1)} assist`:"no assist"):r.top?`${loaded(r.ex)?"":"+"}${+r.top.toFixed(1)}`:"BW"}×${r.topR}</td><td>${r.e1?Math.round(r.e1):"–"}</td><td>${r.day}</td>`}</tr>`).join("")}</tbody></table></div><p class="hint">Est. 1RM is your estimated one-rep max from the Epley formula, using sets of 15 reps or fewer. Best day is the most weight you've moved on that exercise in one workout (total reps for bodyweight and assisted moves). Warm-ups never count. Pick an exercise below to see its rep records.</p>`:`<p class="hint">Log some sets to start tracking records.</p>`}</div>`;
+  const cl = state.calib || [], cb = calBias();
+  const calCard = `<div class="panel" style="gap:8px"><div class="row"><h3 class="grow">🎯 Reps-in-reserve check</h3><button class="chip" data-act="calToggle" id="calToggle" aria-pressed="${state.calOn !== false}">${state.calOn !== false ? "On" : "Off"}</button></div>
+    <span class="hint">About every 2 weeks, the last set of one machine or cable isolation exercise goes to failure after you guess how many reps you had left. Most people have more left than they think.</span>
+    ${cl.length ? `<p class="hint">${cl.length >= 2 ? (cb >= 1 ? `On average you have about <b>${fmtSets(cb)} more reps</b> than you log. The app adds that when it sets weights.` : cb <= -1 ? `On average you have about ${fmtSets(-cb)} fewer reps than you log. The app takes that into account.` : "Your guesses are on the money.") : "One check so far. The app starts adjusting after two."}</p>
+      <p class="hint" style="font-size:12.5px">${cl.slice(-5).reverse().map(c => `${esc(exById(c.ex).n)}: guessed ${c.guess}, had ${c.actual}`).join(" · ")}</p>` : `<p class="hint">No checks yet. The first one comes up in a workout soon.</p>`}</div>`;
+  const prTable = calCard + `<div class="panel"><h3>Personal records</h3>${recs.length?`<div class="tablewrap"><table class="st"><thead><tr><th>Exercise</th><th>Heaviest</th><th>Est. 1RM</th><th>Best day</th></tr></thead><tbody>${recs.map(r=>`<tr><td>${esc(r.ex.n)}</td>${r.ex.t==="time"?`<td>${fmtTime(r.hold)} hold</td><td>–</td><td>–</td>`:`<td>${r.as?(r.top?`${+r.top.toFixed(1)} assist`:"no assist"):r.top?`${loaded(r.ex)?"":"+"}${+r.top.toFixed(1)}`:"BW"}×${r.topR}</td><td>${r.e1?Math.round(r.e1):"–"}</td><td>${r.day}</td>`}</tr>`).join("")}</tbody></table></div><p class="hint">Est. 1RM is your estimated one-rep max from the Epley formula, using sets of 15 reps or fewer. Best day is the most weight you've moved on that exercise in one workout (total reps for bodyweight and assisted moves). Warm-ups never count. Pick an exercise below to see its rep records.</p>`:`<p class="hint">Log some sets to start tracking records.</p>`}</div>`;
   // exercise detail
   const done = [...new Set(S.flatMap(s => s.items.filter(it=>it.sets.some(x=>x.done)).map(it=>it.ex)))].sort((a,b)=>exById(a).n.localeCompare(exById(b).n));
   if (!progressEx || !done.includes(progressEx)) progressEx = prList.length ? prList[0][0] : done[0];
@@ -1946,8 +2032,8 @@ const KRANK = { heavy:0, comp:1, iso:2, time:3 };
 const ISO_ANGLES = new Set(["armfront","armback","fly","lat","rear","front","legext","legcurl","abduct","gkick","over","tri","curl","hammer","calf","shrug","pullover","crunch","legraise","anti","rotate"]);
 // Curls by where your elbows are: behind you (incline, Bayesian) trains the biceps stretched; in front (preacher, spider)
 // shifts growth toward the lower biceps and the brachialis (Kassiano 2025; Kobayashi 2026)
-const ARM_FRONT = /Preacher|Spider|Concentration|Machine Curl|High Cable Curl|Scott/, ARM_BACK = /Incline (Dumbbell |Hammer )?Curl|Bayesian|Lying Cable Curl|Behind-the-Back/;
-function angleOf(ex){ const p = patternOf(ex); if (ex.m === "Biceps" && (p === "curl" || p === "hammer")) return ARM_FRONT.test(ex.n) ? "armfront" : ARM_BACK.test(ex.n) ? "armback" : p; if (ex.m === "Triceps") return /Overhead|Katana/.test(ex.n) ? "over" : p === "tri" ? "tri" : "press"; return p; }
+const ARM_FRONT = /Preacher|Spider|Concentration|Machine Curl|High Cable Curl|Scott/, ARM_BACK = /Incline (Dumbbell |Hammer )?Curl|Bayesian|Drag Curl|Behind-the-Back/;
+function angleOf(ex){ const p = patternOf(ex); if (ex.m === "Biceps" && (p === "curl" || p === "hammer")){ const a = labelOf(ex).arm; return a === "front" ? "armfront" : a === "back" ? "armback" : p; } if (ex.m === "Triceps") return /Overhead|Katana/.test(ex.n) ? "over" : p === "tri" ? "tri" : "press"; return p; }
 const stable = ex => ["MA","CA","SM"].includes(ex.e) || /Chest-Supported|Seated|Preacher|Machine/.test(ex.n);
 const restFor = ex => { const k = klass(ex); return state.goals.goal === "strength" && k === "heavy" ? 180 : DEFAULTS[k].rest; };
 function usedIn(days){ const s = new Set(); (days || []).forEach(d => d.items.forEach(it => s.add(it.ex))); return s; }
@@ -2122,6 +2208,18 @@ function planNext(opt){
       o.s.pat = a; o.s.cands = r.slice(0, 6).map(c => ({ id:c.x.id, why:c.why, cover:COVER_WHY[a] })); take(o.s, o.di);
     });
   });
+  // 6b. helper sets count half: a muscle that gets lots of indirect work (biceps from rows, triceps from presses, glutes from
+  // squats) needs fewer direct sets to reach its weekly target, but keeps at least half of it (three quarters for a priority)
+  const live = () => days.flatMap(d => d.items.filter(q => q.cands && q.cands.length));
+  Object.values(plan).forEach(P => {
+    if (P.target == null) return;
+    const ind = live().reduce((t, q) => { const x = exById(q.cands[0].id); return x.m === P.m ? t : t + q.sets * (creditOf(x)[P.m] || 0); }, 0);
+    const mine = live().filter(q => q.m === P.m); if (ind < 2 || !mine.length) return;
+    const floor = P.prio ? Math.ceil(P.target * .75) : Math.max(4, Math.ceil(P.target * .5));
+    let direct = mine.reduce((t, q) => t + q.sets, 0), cut = 0;
+    while (direct + ind > P.target + 1 && direct > floor){ const q = mine.filter(x => x.sets > 2).sort((a, b) => b.sets - a.sets || KRANK[b.kl] - KRANK[a.kl])[0]; if (!q) break; q.sets--; direct--; cut++; }
+    if (cut) P.why.push(`${fmtSets(ind)} of its weekly sets come from exercises that also work it (counted half), so direct work drops by ${plural(cut, "set")}`);
+  });
   // 7. order each day (priority muscles first, then heavy lifts, compounds, isolation, and core or calves last), rep ranges, rest
   days.forEach(d => {
     const pairs = new Map(); d.items.forEach((s, i) => { if (s.ss && d.items[i+1]) pairs.set(s, d.items[i+1]); });
@@ -2189,7 +2287,7 @@ function planNext(opt){
     if (dropped.length) notes.push(`${d.name}: dropped ${dropped.join(" and ")} to fit ${fit}. Those muscles still get work on another day.`);
     if (d.mins > cap) notes.push(`${d.name} still runs about ${d.mins} minutes. Pick a longer workout, more days, or fewer priority muscles to fit it.`);
   });
-  Object.values(plan).forEach(P => { P.next = days.reduce((a, d) => a + d.items.filter(s => s.m === P.m).reduce((x, s) => x + s.sets, 0), 0); P.daysNow = state.days.filter(d => d.items.some(it => exById(it.ex).m === P.m)).length; P.daysNext = days.filter(d => d.items.some(s => s.m === P.m)).length; });
+  Object.values(plan).forEach(P => { P.next = days.reduce((a, d) => a + d.items.reduce((x, q) => { const e = q.cands && q.cands[0] ? exById(q.cands[0].id) : null; return x + (q.m === P.m ? q.sets : e ? q.sets * (creditOf(e)[P.m] || 0) : 0); }, 0), 0); P.daysNow = state.days.filter(d => d.items.some(it => exById(it.ex).m === P.m)).length; P.daysNext = days.filter(d => d.items.some(s => s.m === P.m)).length; });
   if (kept.length) notes.unshift(`Kept ${kept.length > 3 ? plural(kept.length, "lift") : kept.join(", ")} because ${kept.length > 1 ? "they're" : "it's"} still progressing. Changing exercises that work doesn't add growth.`);
   return { days, plan, schemeIdx, scheme:sch, notes, A, split:keepSplit ? null : tmpl.name };
 }
@@ -2222,7 +2320,7 @@ function reviewView(){
   const tag = r => r.stuck && (r.trend === "up" || r.trend === "steady") ? `<span class="tg">Stalled lately${r.ch != null ? " · " + pct(r.ch) : ""}</span>` : `<span class="tg ${r.trend === "up" || r.trend === "steady" ? "up" : r.trend === "down" ? "down" : ""}">${TREND[r.trend]}${r.ch != null ? " " + pct(r.ch) : ""}</span>`;
   const exRow = r => `<div class="rvx"><div class="row"><span class="n grow">${esc(exById(r.id).n)}</span>${tag(r)}</div><span class="why num">${esc(r.from)} → ${esc(r.to)} · ${plural(r.n, "session")}</span></div>`;
   const mRows = LIFT_MUSCLES.filter(m => P.plan[m] && P.plan[m].target != null).map(m => { const M = P.plan[m], nx = useAi ? aiSets(ai.plan, m) : { sets:M.next, days:M.daysNext }, d = nx.sets - M.cur;
-    return `<tr><td><b>${m}${M.prio ? " ★" : ""}</b><br><span class="tg ${M.trend === "up" || M.trend === "steady" ? "up" : M.trend === "down" ? "down" : ""}">${M.trend === "new" ? "New" : TREND[M.trend]}</span></td><td>${M.cur} → <b>${nx.sets}</b>${d ? ` ${d > 0 ? "↑" : "↓"}` : ""}</td><td>${M.daysNow} → ${nx.days}</td></tr>`; }).join("");
+    return `<tr><td><b>${m}${M.prio ? " ★" : ""}</b><br><span class="tg ${M.trend === "up" || M.trend === "steady" ? "up" : M.trend === "down" ? "down" : ""}">${M.trend === "new" ? "New" : TREND[M.trend]}</span></td><td>${fmtSets(M.cur)} → <b>${fmtSets(nx.sets)}</b>${Math.abs(d) >= .5 ? ` ${d > 0 ? "↑" : "↓"}` : ""}</td><td>${M.daysNow} → ${nx.days}</td></tr>`; }).join("");
   const mNotes = useAi ? "" : LIFT_MUSCLES.filter(m => P.plan[m] && P.plan[m].why.length).map(m => `<p class="why"><b>${m}:</b> ${esc(cap1(P.plan[m].why.join("; ")))}.</p>`).join("");
   const dayCards = P.days.map((d, di) => `<div class="panel"><div class="row"><h3 class="grow">${esc(d.name)}</h3><span class="hint num">about ${estTime(d.items.map((s, xi) => { const x = exById(pickFor(di, xi).id); return { x, sets:s.sets, rest:restFor(x), ss:s.ss }; }))} min</span></div>${d.items.map((s, xi) => {
       const c = pickFor(di, xi), x = exById(c.id), ssNext = s.ss && d.items[xi+1];
@@ -2239,7 +2337,7 @@ function reviewView(){
       ${fresh.length ? `<p class="hint">Only one session, too early to judge: ${fresh.map(r => esc(exById(r.id).n)).join(", ")}.</p>` : ""}
       <p class="hint">Compared by estimated 1-rep max from your first sessions in the block to your last ones.</p></div>
     <div class="panel"><h3>Muscles: this block → next</h3><div class="tablewrap"><table class="st"><thead><tr><th>Muscle</th><th>Sets a week</th><th>Days a week</th></tr></thead><tbody>${mRows}</tbody></table></div>
-      ${mNotes}<p class="hint">About 10–20 hard sets per muscle a week works for most people. ★ is a priority muscle.</p></div>
+      ${mNotes}<p class="hint">About 10–20 hard sets per muscle a week works for most people. A set counts half for a muscle that helps a lot (rows for biceps, presses for triceps). ★ is a priority muscle.</p></div>
     ${ratePanel(A)}
     <div class="panel"><div class="row"><h3 class="grow">🎯 ${review.goals ? "Before planning: your goals" : "Your goals"}</h3><button class="small ghost" data-act="rvGoals" id="rvGoals">${review.goals ? "Done" : "Edit"}</button></div>
       ${review.goals ? goalsBody() : `<p class="hint">${esc(GOALS[g.goal])} · ${esc(EXPS[g.exp])} · ${g.priority.length ? `priority: ${esc(g.priority.join(", "))}` : "no priority muscles"} · ${esc(WHERES[g.where])} · ${esc(minLabel(g.minutes))} · ${esc(SPLIT_PREF[g.split])} · ${esc(SS_PREF[g.ssPref].toLowerCase())}</p>`}</div>
@@ -2403,7 +2501,9 @@ const EXQ_SCHEMA = { type:"object", additionalProperties:false, required:["reply
   matches:{ type:"array", items:{ type:"object", additionalProperties:false, required:["exercise", "why"], properties:{ exercise:{ type:"string" }, why:{ type:"string" } } } },
   create:{ anyOf:[{ type:"object", additionalProperties:false, required:["name", "muscle", "equipment", "timed", "pattern", "kind", "tip"], properties:{
     name:{ type:"string" }, muscle:{ type:"string", enum:MUSCLES }, equipment:{ type:"string", enum:Object.keys(EQ) }, timed:{ type:"boolean" },
-    pattern:{ type:"string", enum:PAT_KEYS.concat("other") }, kind:{ type:"string", enum:["heavy", "comp", "iso"] }, tip:{ type:"string" } } }, { type:"null" }] } } };
+    pattern:{ type:"string", enum:PAT_KEYS.concat("other") }, kind:{ type:"string", enum:["heavy", "comp", "iso"] }, tip:{ type:"string" },
+    one_side_at_a_time:{ type:"boolean" }, equipment_needed:{ type:"array", items:{ type:"string", enum:GEAR.map(g => g[0]) } }, elbows:{ type:"string", enum:["front", "back", "side", "none"] } } }, { type:"null" }] } } };
+EXQ_SCHEMA.properties.create.anyOf[0].required.push("one_side_at_a_time", "equipment_needed", "elbows");
 const exAskOn = () => !!aiKey && !!picker && picker.target !== "avoid";
 const exAskLabel = () => { const q = picker ? picker.q.trim() : ""; return q ? `🤖 Ask Claude about “${q.length > 32 ? q.slice(0, 31) + "…" : q}”` : "🤖 Type above, then ask Claude"; };
 const showAsk = () => { const el = document.getElementById("exAsk"); if (el) el.scrollIntoView({ block:"nearest" }); };
@@ -2430,7 +2530,7 @@ function exAskTask(q){
   return `${nowText()}\n${goalsText()}\n\nTask: they're adding an exercise ${sw ? `in place of ${exById(sw.ex).n}` : picker.target === "day" ? "to a day in their program" : "to today's workout"} and couldn't find this in the library: "${q.slice(0, 120)}".
 - If it's already in the library under another name or spelling (for example RDL for Romanian Deadlift), put that exercise in "matches", spelled exactly as listed, and set "create" to null.
 - If they described what they want rather than naming an exercise, put up to 3 library exercises that fit best for their goals and equipment in "matches", best first. Only create one if nothing in the library fits.
-- If it's a real exercise that isn't in the library, describe it in "create": its usual name (at most 40 characters), the main muscle, the equipment code, whether it's tracked by time instead of reps, its movement pattern, whether it's a big compound lift (rested 2–3 minutes), another compound or an isolation move, and one form tip of at most 30 words. You can also put up to 2 close library alternatives in "matches".
+- If it's a real exercise that isn't in the library, describe it in "create": its usual name (at most 40 characters), the main muscle, the equipment code, whether it's tracked by time instead of reps, its movement pattern, whether it's a big compound lift (rested 2–3 minutes), another compound or an isolation move, and one form tip of at most 30 words. You can also put up to 2 close library alternatives in "matches". Also say whether it's done one side at a time, which of these equipment pieces it needs (${GEAR.map(g => `${g[0]} = ${g[1]}`).join(", ")}), and for curls whether the elbows are in front of the body (preacher-style), behind it (incline-style) or at the sides.
 - Each match gets a "why" of at most 10 words. "reply" is one short sentence for them: the name it's under in the library, what fits, or what you'd add.
 Movement patterns: ${Object.entries(PAT_WORDS).map(([k, v]) => `${k} (${v})`).join(", ")}, other (anything else, like cardio or mobility).`;
 }
@@ -2447,7 +2547,9 @@ function cleanExAsk(r){
     else if (n){
       const e = one(c.equipment).toUpperCase(), p = low(c.pattern), k = low(c.kind);
       create = { n, m:MUSCLES.find(x => x.toLowerCase() === low(c.muscle)) || "Other", e:EQ[e] ? e : "OT", t:c.timed === true ? "time" : "reps",
-        p:PAT_KEYS.includes(p) ? p : "other", k:["heavy", "comp", "iso"].includes(k) ? k : "comp", tip:one(c.tip).slice(0, 220) };
+        p:PAT_KEYS.includes(p) ? p : "other", k:["heavy", "comp", "iso"].includes(k) ? k : "comp", tip:one(c.tip).slice(0, 220),
+        uni:c.one_side_at_a_time === true, gear:(Array.isArray(c.equipment_needed) ? c.equipment_needed : []).filter(k => GEAR.some(g => g[0] === k)),
+        arm:c.elbows === "front" || c.elbows === "back" ? c.elbows : null };
     }
   }
   return { reply:one(r && r.reply).slice(0, 200), matches, create };
@@ -2480,8 +2582,8 @@ function blockText(){
 }
 function weekSetsText(){
   const mc = {};
-  state.sessions.filter(s => s.end > Date.now() - 7*dayMs).forEach(s => s.items.forEach(it => { const ex = exById(it.ex); if (ex.t === "time" || !LIFT_MUSCLES.includes(ex.m)) return; const n = it.sets.filter(x => x.done && x.tag !== "W").length; if (n) mc[ex.m] = (mc[ex.m] || 0) + n; }));
-  return `Hard sets per muscle in the last 7 days: ${LIFT_MUSCLES.map(m => `${m} ${mc[m] || 0}`).join(", ")}.`;
+  state.sessions.filter(s => s.end > Date.now() - 7*dayMs).forEach(s => s.items.forEach(it => { const ex = exById(it.ex); if (ex.t === "time" || !LIFT_MUSCLES.includes(ex.m)) return; const n = it.sets.filter(x => x.done && x.tag !== "W").length; if (n) Object.entries(creditOf(ex)).forEach(([m, w]) => { mc[m] = (mc[m] || 0) + n * w; }); if (false) mc[ex.m] = (mc[ex.m] || 0) + n; }));
+  return `Hard sets per muscle in the last 7 days (helper sets count half): ${LIFT_MUSCLES.map(m => `${m} ${fmtSets(mc[m] || 0)}`).join(", ")}.`;
 }
 function programText(){
   if (!state.days.length) return "They have no program days set up.";
@@ -2649,7 +2751,7 @@ function coachView(){
 // ---------- the next block, planned by Claude ----------
 // What the research says, as the app applies it. Claude plans from this and its own knowledge.
 const RESEARCH_BRIEF = `Research the plan should follow (use your own knowledge of the literature too, and go with the stronger evidence where it differs):
-- Volume: hard sets per muscle per week show a dose-response with diminishing returns; about 10–20 a week suits most trained lifters (Schoenfeld 2017; Pelland 2024). Priority muscles toward the top, maintenance muscles can sit lower. Count a set for the muscle it mainly trains.
+- Volume: hard sets per muscle per week show a dose-response with diminishing returns; about 10–20 a week suits most trained lifters (Schoenfeld 2017; Pelland 2024). Priority muscles toward the top, maintenance muscles can sit lower. Count a set fully for the muscle it mainly trains and half for a big helper (rows → biceps, presses → triceps, squats and hinges → glutes), as the app does (Pelland 2024).
 - Frequency: spreading a muscle's weekly sets over 2+ days beats cramming them into one when volume is moderate to high, mostly because per-session sets stay high quality (Schoenfeld 2016; Pelland 2024). More than about 6–8 hard sets for one muscle in one session adds little.
 - Effort: most growth comes from sets taken 0–3 reps short of failure; isolation work can go closer than big compounds (Refalo 2023; Robinson 2024).
 - Rest: more than 60 s between sets grows a little more than less; past about 90 s adds little for isolation; big compounds need 2–3 min to keep reps up (Singer 2024).
@@ -2741,7 +2843,7 @@ function blockContent(){
   return [nowText(), goalsText(), bodyText(), interviewText(), gearText(), weekText(), horizonText(), RESEARCH_BRIEF,
     `Block ${b.n} is ending: ${plural(A.weeks, "week")} trained, ${plural(A.S.length, "workout")}, ${Math.round(A.adherence * 100)}% of planned workouts made${A.rir != null ? `, sets averaged ${A.rir.toFixed(1)} reps in reserve` : ""}${mins ? `, workouts averaged ${mins} minutes` : ""}. ${readyText(A)}`,
     `How each lift did this block:\n${liftsText(A)}`, feelText(A),
-    `Hard sets per muscle this block: ${mus || "not enough data"}.`,
+    `Hard sets per muscle this block (helper sets count half): ${mus || "not enough data"}.`,
     `Weekly hard sets per muscle the app suggests for the next block, from its trends and their priorities (a guide, adjust with reason): ${tgt}.`,
     programText(), pastBlocksText(), historyText(6), overlapText(), TIMING_TEXT,
     `The app's own rule-based draft for the next block, for reference. Do better where you can:\n${draft}`,
@@ -2887,7 +2989,7 @@ async function aiBlockRevise(){
   if (review === r && r.ai === ai){ ai.busy = false; render(); }
 }
 // weekly sets and days for a muscle in Claude's plan, for the review table
-function aiSets(plan, m){ let sets = 0, days = 0; plan.days.forEach(d => { const n = d.items.filter(it => exById(it.ex).m === m).reduce((t, it) => t + it.sets, 0); sets += n; if (n) days++; }); return { sets, days }; }
+function aiSets(plan, m){ let sets = 0, days = 0; plan.days.forEach(d => { const n = d.items.filter(it => exById(it.ex).m === m).reduce((t, it) => t + it.sets, 0); sets += n + d.items.reduce((t, it) => { const x = exById(it.ex); return x.m === m ? t : t + it.sets * (creditOf(x)[m] || 0); }, 0); if (n) days++; }); return { sets, days }; }
 function aiBlockPanel(){
   const ai = review.ai;
   if (!aiKey) return state.aiHide ? "" : `<div class="panel" id="aiBlock" style="gap:8px"><b>🤖 Want Claude to plan it?</b><span class="hint">With your own Claude API key, Claude reads your results, past blocks and answers above, plans at its highest effort, and the app checks the plan and has Claude fix anything off. The app's plan below works without it.</span>
@@ -3086,8 +3188,10 @@ function buildSessionItem(tpl, ctx, exactSets){
 function startSession(day, rd){
   const ctx = sessionCtx(day ? day.id : null);
   if (rd) applyReady(ctx, rd.level);
+  if (lightOn()){ ctx.light = true; ctx.lighter = true; ctx.rir = ctx.rir.map(v => Math.min(4, v + 2)); }
   state.active = { id:uid(), dayId: day ? day.id : null, dayName: day ? day.name : "Workout", start:Date.now(), items: day ? day.items.map(it => buildSessionItem(it, ctx)) : [], lastDone:null,
-    wk: day ? { week:ctx.week, weeks:ctx.weeks, intro:ctx.intro, rir:ctx.rir } : null, ready: rd || null };
+    wk: day ? { week:ctx.week, weeks:ctx.weeks, intro:ctx.intro, rir:ctx.rir } : null, ready: rd || null, ...(ctx.light ? { light:true } : {}) };
+  if (day) pickCalibration(state.active, ctx, rd);
   state.tab = "train"; review = null; save(); render(); window.scrollTo(0,0); keepAwake();
 }
 function finishSession(){
@@ -3114,6 +3218,11 @@ document.addEventListener("click", e => {
     case "rdClose": ready = null; render(); break;
     case "rdNever": state.askReady = false; showToast("Okay, no check-in before workouts. Turn it back on in Program → Settings.");
     // falls through
+    case "lightGo": state.light = { start:Date.now(), until:Date.now() + 7*dayMs }; save(); render(); showToast("Lighter week on. Your next 7 days of workouts are set up lighter."); break;
+    case "lightEnd": state.light.until = Date.now(); save(); render(); break;
+    case "fatigueLater": state.fatigueSnooze = Date.now() + 5*dayMs; save(); render(); break;
+    case "calGuess": { const it = state.active.items[x], s = it.sets[it.sets.length - 1]; s.guess = +b.dataset.v; save(); render(); break; }
+    case "calToggle": state.calOn = state.calOn === false; save(); render(); break;
     case "rdStart": { const r = ready; ready = null; startSession(state.days[r.i], { ...r.a, level:readyLevel(r.a) }); break; }
     case "askReady": state.askReady = b.dataset.v === "1"; save(); render(); break;
     case "bar": state.bar = +b.dataset.v; save(); render(); break;
@@ -3142,6 +3251,11 @@ document.addEventListener("click", e => {
       if (s.done){ s.done = false; s.pr = false; s.rest = null; save(); render(); break; }
       const ex = exById(it.ex);
       if (isUni(ex) && !it.first){ const lf = lastFirst(it.ex); if (lf) it.first = lf.side === "L" ? "R" : "L"; }
+      if (it.cal && +b.dataset.s === it.sets.length - 1 && !s.done){
+        if (s.guess != null && num(s.r)){ const actual = num(s.r) - calTarget(it); s.calRes = { guess:s.guess, actual }; s.rir = 0; (state.calib || (state.calib = [])).push({ at:Date.now(), ex:it.ex, guess:s.guess, actual });
+          setTimeout(() => showToast(`🎯 You guessed ${s.guess} left, you had ${actual}.`), 900); }
+        else if (s.guess == null) setTimeout(() => showToast("Calibration skipped: tap your guess before the set next time."), 900);
+      }
       if (ex.t === "time" ? !parseTime(s.r) : !num(s.r)){ showToast(ex.t==="time" ? "Enter the time first, like 0:45." : "Enter your reps first."); render(); break; }
       s.done = true; s.ts = Date.now();
       if (state.active.lastDone) s.rest = Math.round((s.ts - state.active.lastDone)/1000);
