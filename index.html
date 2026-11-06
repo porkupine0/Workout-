@@ -733,7 +733,7 @@ function analyzeBlock(b){
     work.forEach(x => { if (x.rir != null) rirs.push(x.rir); });
     const r = ex[it.ex] || (ex[it.ex] = { id:it.ex, m:e.m, t:e.t, list:[], sets:0 });
     const h = exposures(it.ex).find(x => x.at === s.end);
-    r.list.push({ at:s.end, score:perfScore(work, e), best:bestSet(work, e), improved:h ? h.improved : true, bad:h ? h.bad : false }); r.sets += work.length;
+    r.list.push({ at:s.end, score:perfScore(work, e), best:bestSet(work, e), improved:h ? h.improved : true, bad:h ? h.bad && !h.improved : false }); r.sets += work.length;
   }));
   const list = Object.values(ex).map(r => {
     const L = r.list, n = L.length, k = Math.max(1, Math.min(2, Math.floor(n/2)));
@@ -765,15 +765,15 @@ function targetFor(tpl, ctx){
   if (!H.length) return fill("", "", "new", ctx.intro ? `New exercise. Find a weight you could lift about ${hi+3} times and stop at ${lo}–${hi}, with 3–4 reps left.` : `First time. Pick a weight you can lift ${lo}–${hi} times with 1–3 reps left.`);
   const latest = H[H.length-1], ref = [...H].reverse().find(h => h.dayId && h.dayId === ctx.dayId && Date.now() - h.at < 21*dayMs) || latest;
   const ago = ref === latest ? "last time" : "last week";
-  // Workouts you marked rough or off before starting don't count toward a stall or a slide.
-  const G = H.filter(h => !h.bad), L3 = G.slice(-3), sc = L3.map(h => h.score), dy = L3.map(h => h.day);
+  // Workouts you marked rough or off before starting don't count toward a stall or a slide, unless you made progress anyway.
+  const G = H.filter(h => !h.bad || h.improved), L3 = G.slice(-3), sc = L3.map(h => h.score), dy = L3.map(h => h.day);
   // slipping: best set AND total work both down two sessions in a row; stalled: no progress of any kind in 3 sessions
   const slipping = sc.length === 3 && sc[2] < sc[1] * .99 && sc[1] < sc[0] * .99 && (ex.t === "time" || (dy[2] < dy[1] && dy[1] < dy[0]));
   // After a 10% reset, judge progress against the workouts since the reset, not the old best you're climbing back to.
   const lastImp = H.map(h => h.improved).lastIndexOf(true), rsAt = H.map(h => h.flag === "reset").lastIndexOf(true), recovering = rsAt >= 0 && lastImp <= rsAt;
   let stalled = G.length >= 4 && !L3.some(h => h.improved), restalled = false;
   if (recovering){
-    const P = H.slice(rsAt).filter(h => !h.bad);
+    const P = H.slice(rsAt).filter(h => !h.bad || h.improved);
     restalled = P.length >= 4 && P.slice(-3).every(h => { const before = P.slice(0, P.indexOf(h)); return h.score <= Math.max(...before.map(b => b.score)) * 1.005 && h.day <= Math.max(...before.map(b => b.day)); });
     stalled = false;
   }
