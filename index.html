@@ -720,7 +720,7 @@ function exposures(exId){
     const pos = s.items.indexOf(it), inSS = it.ss || (pos > 0 && s.items[pos-1].ss), known = work.filter(x => x.rir != null);
     const rs = inSS ? [] : it.sets.filter((x, k) => k > 0 && x.done && x.tag !== "W" && x.rest != null && x.rest > 0).map(x => x.rest);
     out.push({ at:s.end, dayId:s.dayId, work, score, day, improved, pos, of:s.items.length, rest:rs.length ? avg(rs) : null, restT:it.rest || null,
-      rir:known.length ? avg(known.map(x => x.rir)) : null, pre:pos > 0 && s.items[pos-1].ss ? { ex:s.items[pos-1].ex, ov:overlapOf(exById(s.items[pos-1].ex), ex).v } : null, bad:!!(s.ready && (s.ready.level === "rough" || s.ready.level === "off")), flag:(it.target && it.target.flag) || null });
+      rir:known.length ? avg(known.map(x => x.rir)) : null, pre:pos > 0 && s.items[pos-1].ss ? { ex:s.items[pos-1].ex, ov:overlapOf(exById(s.items[pos-1].ex), ex).v } : null, bad:!!(s.ready && BAD_DAY.has(s.ready.level)), flag:(it.target && it.target.flag) || null });
     prior.push(...work); bestScore = Math.max(bestScore, score); bestDay = Math.max(bestDay, day); });
   return out;
 }
@@ -1102,15 +1102,47 @@ function nudges(){
   return out.join("");
 }
 // before a workout: a quick check on how you feel, which holds targets steady on a rough day
-const READY_Q = [["sleep","Sleep",[["poor","😴 Poor"],["ok","OK"],["great","Great"]]],["sore","Soreness",[["very","Very sore"],["some","A little"],["none","None"]]],["energy","Energy",[["low","Low"],["ok","OK"],["high","High"]]]];
-const READY_MSG = { rough:"Rough day: targets hold steady and you leave an extra rep in reserve. Showing up still counts.", off:"Not quite 100%: no weight jumps today, but reps can still go up.", normal:"Normal day: targets as planned.", great:"Feeling great: if your first set moves fast, take the next weight jump." };
-function readyLevel(a){ const s = (a.sleep === "poor" ? -1 : a.sleep === "great" ? 1 : 0) + (a.sore === "very" ? -1 : 0) + (a.energy === "low" ? -1 : a.energy === "high" ? 1 : 0); return s <= -2 ? "rough" : s === -1 ? "off" : s >= 2 ? "great" : "normal"; }
+// Readiness check before a workout. Points: sleep under 6 h −2, 6–7 h −1, 7–8 h 0, 8+ h +1; soreness 1–2 0, 3 −1, 4 −2,
+// 5 −3; energy 1 −2, 2 −1, 3 0, 4 +1, 5 +2. Total: +2 or more great, −1 to +1 normal, −2 to −3 off, −4 to −5 rough,
+// −6 or less recovery. Soreness 5 is at least a rough day, and soreness 4+ can't be a great one.
+const READY_Q = [["sleep","Sleep last night",[["lt6","Under 6 h"],["6-7","6–7 h"],["7-8","7–8 h"],["8+","8+ h"]]],
+  ["sore","Soreness",["1","2","3","4","5"].map(v => [v, v])],["energy","Energy",["1","2","3","4","5"].map(v => [v, v])]];
+const READY_MEAN = {
+  sleep:{ lt6:"Short sleep costs strength and reps.", "6-7":"A little short.", "7-8":"Solid night.", "8+":"Fully rested." },
+  sore:{ 1:"1 · None.", 2:"2 · A little stiff, gone once you warm up.", 3:"3 · Sore, but it won't change your lifts much.", 4:"4 · Very sore. It'll cost you some reps.", 5:"5 · Painful. It hurts to move through a full range." },
+  energy:{ 1:"1 · Running on empty.", 2:"2 · Low, dragging a bit.", 3:"3 · Normal.", 4:"4 · Good, ready to go.", 5:"5 · Great, could run through a wall." } };
+const READY_PTS = { sleep:{ lt6:-2, "6-7":-1, "7-8":0, "8+":1 }, sore:{ 1:0, 2:0, 3:-1, 4:-2, 5:-3 }, energy:{ 1:-2, 2:-1, 3:0, 4:1, 5:2 } };
+const READY_MSG = {
+  recovery:"Recovery day: one set fewer on each exercise, no weight jumps, and stop 3–4 reps short of failure. Showing up keeps the habit, and you'll be stronger for it next time.",
+  rough:"Rough day: weights hold and you leave an extra rep in reserve. The targets are a floor, not a ceiling: if you feel good once you're going, beat them.",
+  off:"Not quite 100%: no weight jumps today, but reps can still go up.",
+  normal:"Normal day: targets as planned.",
+  great:"Feeling great: if your first set moves fast, take the next weight jump." };
+const READY_WORD = { recovery:"wiped out", rough:"rough", off:"off", normal:"normal", great:"great" };
+const BAD_DAY = new Set(["recovery","rough","off"]);
+function readyScore(a){ return READY_PTS.sleep[a.sleep] + READY_PTS.sore[a.sore] + READY_PTS.energy[a.energy]; }
+function readyLevel(a){
+  if (!(a.sleep in READY_PTS.sleep)) return a.level || "normal";   // older check-ins kept their own level
+  const t = readyScore(a); let lv = t <= -6 ? "recovery" : t <= -4 ? "rough" : t <= -2 ? "off" : t >= 2 ? "great" : "normal";
+  if (+a.sore === 5 && !["rough","recovery"].includes(lv)) lv = "rough";
+  if (+a.sore >= 4 && lv === "great") lv = "normal";
+  return lv;
+}
+// what a level does to today's targets: rough and recovery hold weights; recovery also drops a set and leaves more in reserve
+function applyReady(ctx, level){
+  if (!level) return ctx;
+  ctx.ready = level === "recovery" ? "rough" : level;
+  if (level === "rough") ctx.rir = ctx.rir.map(v => Math.min(4, v + 1));
+  if (level === "recovery"){ ctx.rir = ctx.rir.map(v => Math.min(4, v + 2)); ctx.lighter = true; }
+  return ctx;
+}
 function readyView(){
   const a = ready.a, day = state.days[ready.i];
   return `<div class="modal" role="dialog" aria-modal="true" aria-label="How are you feeling?"><div class="mb" style="padding-top:calc(16px + env(safe-area-inset-top,0px))"><div class="inner" style="display:flex;flex-direction:column;gap:16px;padding-bottom:24px">
     <div class="row"><h2 class="grow">How are you feeling?</h2><button class="small ghost" data-act="rdClose" id="rdClose">Cancel</button></div>
-    ${READY_Q.map(([k, l, opts]) => `<div class="rdrow"><span class="gl">${l}</span><div class="chips">${opts.map(([v, txt]) => `<button class="chip" data-act="rdPick" data-k="${k}" data-v="${v}" id="rd-${k}-${v}" aria-pressed="${a[k]===v}">${txt}</button>`).join("")}</div></div>`).join("")}
-    <p class="${readyLevel(a) === "rough" ? "err" : readyLevel(a) === "great" ? "ok" : "hint"}">${READY_MSG[readyLevel(a)]}</p>
+    ${READY_Q.map(([k, l, opts]) => `<div class="rdrow"><span class="gl">${l}${k === "sore" ? " <span class=\"hint\" style=\"font-weight:400\">(1 none · 5 painful)</span>" : k === "energy" ? " <span class=\"hint\" style=\"font-weight:400\">(1 empty · 5 great)</span>" : ""}</span><div class="chips">${opts.map(([v, txt]) => `<button class="chip" data-act="rdPick" data-k="${k}" data-v="${v}" id="rd-${k}-${v}" aria-pressed="${a[k]===v}">${txt}</button>`).join("")}</div><span class="hint" style="font-size:13px">${READY_MEAN[k][a[k]] || ""}</span></div>`).join("")}
+    ${(lv => `<p class="${lv === "rough" || lv === "recovery" ? "err" : lv === "great" ? "ok" : "hint"}"><b>Score ${(t => t > 0 ? "+" + t : t < 0 ? "−" + -t : t)(readyScore(a))}.</b> ${READY_MSG[lv]}</p>`)(readyLevel(a))}
+    <details><summary class="hint" style="cursor:pointer">How the score works</summary><p class="hint" style="font-size:13px;margin-top:6px">Sleep: under 6 h −2, 6–7 h −1, 7–8 h 0, 8+ h +1. Soreness: 1–2 → 0, 3 → −1, 4 → −2, 5 → −3. Energy: 1 → −2, 2 → −1, 3 → 0, 4 → +1, 5 → +2.<br>Total +2 or more: great · −1 to +1: normal · −2 to −3: off · −4 to −5: rough · −6 or less: recovery. Soreness 5 is always at least a rough day, and soreness 4 or 5 can't be a great one.<br>Rough, off and recovery days don't count toward a stall unless you make progress anyway.</p></details>
     <button class="primary" data-act="rdStart" id="rdStart">Start ${esc(day ? day.name : "workout")}</button>
     <button class="ghost small" data-act="rdNever" id="rdNever">Start, and stop asking before workouts</button></div></div></div>`;
 }
@@ -1464,7 +1496,7 @@ function sessionView(){
   const done = a.items.reduce((n,it)=>n+it.sets.filter(s=>s.done).length,0), total = a.items.reduce((n,it)=>n+it.sets.length,0);
   const w = a.wk;
   return `<div class="sesshead"><div class="grow"><small>${esc(a.dayName)}${w ? ` · week ${Math.min(w.week, w.weeks)} of ${w.weeks}` : ""}</small><span class="clock num" id="sessClock">${fmtTime((Date.now()-a.start)/1000)}</span></div><span class="num" style="font-weight:700">${done}/${total} sets</span></div>
-    ${a.ready && a.ready.level !== "normal" ? `<p class="${a.ready.level === "rough" ? "err" : a.ready.level === "great" ? "ok" : "hint"}" style="margin:-4px 0 0">${READY_MSG[a.ready.level]}</p>` : ""}
+    ${a.ready && a.ready.level !== "normal" ? `<p class="${a.ready.level === "rough" || a.ready.level === "recovery" ? "err" : a.ready.level === "great" ? "ok" : "hint"}" style="margin:-4px 0 0">${READY_MSG[a.ready.level]}</p>` : ""}
     ${a.coach ? `<p class="notepre" style="margin:-4px 4px 0">🤖 ${esc(a.coach)}</p>` : ""}
     ${w ? `<p class="hint" style="margin:-6px 4px 0">${w.intro ? "Learning week: one set fewer per exercise. Stop 3–4 reps short of failure and find your working weights." : w.week >= w.weeks ? "Last week of the block: take working sets to 0–1 reps short of failure." : `This week: stop working sets ${w.rir[0]}–${w.rir[1]} reps short of failure.`}</p>` : ""}
     ${items || `<p class="hint">No exercises yet. Add some below.</p>`}
@@ -1617,7 +1649,7 @@ function settingsView(){
 function historyView(){
   if (!state.sessions.length) return `<div class="panel"><h2>No workouts yet</h2><p class="hint">Finished workouts show up here with every set you did.</p>${aiKey ? `<button data-act="plOpen" id="plOpenH">📷 Log a workout from a photo</button>` : ""}</div>`;
   const list = [...state.sessions].map((s,i)=>[s,i]).reverse().map(([s,i]) => `<div class="sess"><div class="sh"><b>${esc(s.dayName)}</b><span class="sm">${fmtDate(s.end)}</span></div>
-    <span class="sm num">${fmtTime((s.end-s.start)/1000)} · ${plural(setsOf(s),"set")} · ${volumeOf(s).toLocaleString()} ${U()}${s.prs&&s.prs.length?` · 🏆 ${plural(s.prs.length,"PR")}`:""}${s.ready && s.ready.level !== "normal" ? ` · felt ${s.ready.level === "off" ? "off" : s.ready.level}` : ""}${s.from === "photo" ? " · 📷 from a photo" : ""}</span>
+    <span class="sm num">${fmtTime((s.end-s.start)/1000)} · ${plural(setsOf(s),"set")} · ${volumeOf(s).toLocaleString()} ${U()}${s.prs&&s.prs.length?` · 🏆 ${plural(s.prs.length,"PR")}`:""}${s.ready && s.ready.level !== "normal" ? ` · felt ${READY_WORD[s.ready.level] || s.ready.level}` : ""}${s.from === "photo" ? " · 📷 from a photo" : ""}</span>
     <details><summary>Details</summary>${s.items.filter(it=>it.sets.some(x=>x.done)).map(it=>{ const ex = exById(it.ex); return `<div class="ex num"><b>${esc(ex.n)}:</b> ${it.sets.filter(x=>x.done).map(x=>fmtSet(x, ex.t)).join(", ")}</div>`; }).join("") || `<div class="ex hint">No completed sets.</div>`}
       <button class="small danger" style="margin-top:6px" data-act="delSess" data-i="${i}" id="dels-${i}">${confirmKey==="dels"+i?"Tap again to delete":"Delete this workout"}</button></details></div>`).join("");
   return `<div class="panel"><div class="row"><h2 class="grow">History</h2><span class="hint num">${plural(state.sessions.length,"workout")}</span></div>${aiKey ? `<button class="small" data-act="plOpen" id="plOpenH">📷 Log a past workout from a photo</button>` : ""}${list}</div>`;
@@ -2245,7 +2277,7 @@ function programText(){
     return `${d.name}${i === nx ? " (up next)" : ""}, last done ${last ? agoTxt(last.end) : "never"}: ${d.items.map(it => { const ex = exById(it.ex); return `${ex.n} ${it.sets}×${it.lo}–${it.hi}${ex.t === "time" ? "s" : ""}`; }).join(", ") || "no exercises"}`; }).join("\n");
 }
 function sessText(s){
-  return `${enDate(s.end)} · ${s.dayName} · ${Math.round((s.end - s.start) / 60000)} min${s.ready && s.ready.level !== "normal" ? ` · felt ${s.ready.level}` : ""}\n`
+  return `${enDate(s.end)} · ${s.dayName} · ${Math.round((s.end - s.start) / 60000)} min${s.ready && s.ready.level !== "normal" ? ` · felt ${READY_WORD[s.ready.level] || s.ready.level}` : ""}\n`
     + s.items.filter(it => it.sets.some(x => x.done)).map(it => { const ex = exById(it.ex); return `  ${ex.n}: ${it.sets.filter(x => x.done).map(x => fmtSet(x, ex.t)).join(", ")}`; }).join("\n");
 }
 function historyText(n){
@@ -2254,14 +2286,14 @@ function historyText(n){
 }
 function dayText(day){
   const ctx = sessionCtx(day.id);
-  return day.items.map(it => { const ex = exById(it.ex), isT = ex.t === "time", n = ctx.intro && (it.sets || 3) > 2 ? it.sets - 1 : it.sets, t = targetFor({ ...it, sets:n }, ctx);
+  return day.items.map(it => { const ex = exById(it.ex), isT = ex.t === "time", n = (ctx.intro || ctx.lighter) && (it.sets || 3) > 2 ? it.sets - 1 : it.sets, t = targetFor({ ...it, sets:n }, ctx);
     const what = t.kind === "new" ? "new to them, find a weight" : isT ? t.reps.join(", ") : t.w !== "" ? `${t.w} × ${t.reps.join(", ")}` : `${t.reps.join(", ")} reps`;
     const note = (state.notes || {})[it.ex];
     return `- ${ex.n} (${ex.m}, ${EQ[ex.e] || "Other"}): ${n} sets × ${it.lo}–${it.hi}${isT ? " seconds" : ""}. Target today: ${what}.${note ? ` Their note: "${note}"` : ""}`; }).join("\n") || "No exercises in this day yet.";
 }
 function activeText(){
   const a = state.active;
-  return `They're ${Math.round((Date.now() - a.start) / 60000)} minutes into ${a.dayName}${a.ready ? ` (felt ${a.ready.level} before starting)` : ""}. Where they are:\n` + (a.items.map(it => {
+  return `They're ${Math.round((Date.now() - a.start) / 60000)} minutes into ${a.dayName}${a.ready ? ` (felt ${READY_WORD[a.ready.level] || a.ready.level} before starting)` : ""}. Where they are:\n` + (a.items.map(it => {
     const ex = exById(it.ex), done = it.sets.filter(s => s.done), left = it.sets.length - done.length, t = it.target;
     return `- ${ex.n} (${ex.m}): ${done.length ? `done ${done.map(s => fmtSet(s, ex.t)).join(", ")}` : "not started"}${left ? `; ${plural(left, "set")} left${t && t.kind !== "new" ? ` (target ${t.w !== "" && t.w != null ? `${t.w} × ` : ""}${t.reps.join(", ")})` : ""}` : "; finished"}`;
   }).join("\n") || "No exercises yet.");
@@ -2331,7 +2363,7 @@ function coachApply(){
   if (c.mode === "session"){
     const a = state.active; if (!a){ coach = null; render(); return; }
     const ctx = sessionCtx(a.dayId);
-    if (a.ready){ ctx.ready = a.ready.level; if (a.ready.level === "rough") ctx.rir = ctx.rir.map(v => Math.min(4, v + 1)); }
+    if (a.ready) applyReady(ctx, a.ready.level);
     const keep = a.items.filter(it => it.sets.some(s => s.done)).map(it => ({ ...it, sets:it.sets.filter(s => s.done), ss:false })), add = [];
     c.res.items.forEach(it => {
       const k = keep.find(q => q.ex === it.ex);
@@ -2598,14 +2630,14 @@ function newItem(exId){ const ex = exById(exId); return { ex:exId, ...DEFAULTS[k
 // A workout item with today's target filled in. In a learning week each exercise gets one set fewer.
 function buildSessionItem(tpl, ctx, exactSets){
   ctx = ctx || sessionCtx(state.active ? state.active.dayId : null);
-  const ex = exById(tpl.ex), n = ctx.intro && !exactSets && (tpl.sets || 3) > 2 ? (tpl.sets || 3) - 1 : (tpl.sets || 3);
+  const ex = exById(tpl.ex), n = (ctx.intro || ctx.lighter) && !exactSets && (tpl.sets || 3) > 2 ? (tpl.sets || 3) - 1 : (tpl.sets || 3);
   const t = targetFor({ ...tpl, sets:n }, ctx), last = lastPerf(tpl.ex), lw = last && last.work.length ? String(last.work[0].w || "") : "";
   const sets = Array.from({length:n}, (_,k) => ({ w: t.w !== "" ? String(t.w) : (t.kind === "new" ? "" : lw), r: t.reps[k] !== "" && t.reps[k] != null ? String(t.reps[k]) : "", done:false }));
   return { ex:tpl.ex, sets, targetSets:n, lo:tpl.lo, hi:tpl.hi, rest:tpl.rest || DEFAULTS[klass(ex)].rest, ss:!!tpl.ss, target:{ w:t.w, reps:t.reps, kind:t.kind, why:t.why, ...(t.flag ? { flag:t.flag } : {}) } };
 }
 function startSession(day, rd){
   const ctx = sessionCtx(day ? day.id : null);
-  if (rd){ ctx.ready = rd.level; if (rd.level === "rough") ctx.rir = ctx.rir.map(v => Math.min(4, v + 1)); }
+  if (rd) applyReady(ctx, rd.level);
   state.active = { id:uid(), dayId: day ? day.id : null, dayName: day ? day.name : "Workout", start:Date.now(), items: day ? day.items.map(it => buildSessionItem(it, ctx)) : [], lastDone:null,
     wk: day ? { week:ctx.week, weeks:ctx.weeks, intro:ctx.intro, rir:ctx.rir } : null, ready: rd || null };
   state.tab = "train"; review = null; save(); render(); window.scrollTo(0,0); keepAwake();
@@ -2629,7 +2661,7 @@ document.addEventListener("click", e => {
   const act = b.dataset.act, d = b.dataset.d != null ? +b.dataset.d : null, x = b.dataset.x != null ? +b.dataset.x : null;
   switch(act){
     case "tab": state.tab = b.dataset.v; summary = null; save(); render(); window.scrollTo(0,0); break;
-    case "startDay": if (state.askReady){ ready = { i:+b.dataset.i, a:{ sleep:"ok", sore:"none", energy:"ok" } }; render(); } else startSession(state.days[+b.dataset.i]); break;
+    case "startDay": if (state.askReady){ ready = { i:+b.dataset.i, a:{ sleep:"7-8", sore:"2", energy:"3" } }; render(); } else startSession(state.days[+b.dataset.i]); break;
     case "rdPick": ready.a[b.dataset.k] = b.dataset.v; render(); break;
     case "rdClose": ready = null; render(); break;
     case "rdNever": state.askReady = false; showToast("Okay, no check-in before workouts. Turn it back on in Program → Settings.");
