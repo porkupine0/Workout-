@@ -466,6 +466,25 @@ const WHERES = { full:"Full gym", home:"Home gym", db:"Dumbbells only", bw:"Body
 // Workout length: the value is the most minutes a workout should take
 const MIN_OPTS = { 30:"Under 30 min", 45:"30–45 min", 60:"45–60 min", 70:"60–70 min", 85:"70+ min" };
 const minLabel = m => MIN_OPTS[m] || `${m} min`;
+// Gym equipment you might not have. Unchecked items rule out the exercises that need them, for both planners and swaps.
+const GEAR = [["hack","Hack squat",/Hack Squat/],["pendulum","Pendulum squat",/Pendulum/],["legpress","Leg press",/Leg Press/],["belt","Belt squat",/Belt Squat/],
+  ["smith","Smith machine",/Smith/],["cable","Cable stack",null,"CA"],["machrow","Row machine or T-bar",/T-Bar|Machine Row|Chest-Supported Machine|Hammer Strength Row|Low Row Machine/],
+  ["seatcurl","Seated leg curl",/Seated Leg Curl/],["lycurl","Lying leg curl",/Lying Leg Curl/],["legext","Leg extension",/Leg Extension/],["thrust","Hip thrust machine",/Machine Hip Thrust|Kas Glute/],
+  ["abduct","Hip abduction machine",/Abduction Machine|Adduction Machine/],["preacher","Preacher bench",/Preacher/],["latmach","Lateral raise machine",/Machine Lateral Raise/],
+  ["pecdeck","Pec deck / rear-delt machine",/Pec Deck|Reverse Pec|Machine Rear Delt|Machine Fly/],["assist","Assisted pull-up / dip machine",/^Assisted (Pull-Up|Dip|Chin)/],
+  ["backext","Back extension / GHD",/Glute-Ham|Back Extension|Hyperextension|Reverse Hyper/],["calfmach","Calf raise machines",/Seated Calf Raise|Donkey Calf|Standing Calf Raise$/],
+  ["landmine","Landmine",/Landmine/],["trapbar","Trap bar",/Trap Bar/],["dips","Dip station",/Parallel Bar Dip|^Triceps Dip|^Dip/],["pullbar","Pull-up bar",/Pull-Up|Chin-Up|Hanging|Dead Hang|Toes to Bar/]];
+const gearOK = x => !(state.goals.noGear || []).some(k => { const g = GEAR.find(q => q[0] === k); return g && (g[3] ? x.e === g[3] : g[2].test(x.n)); });
+const WK_DAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+const WEEK_KIND = { lift:"🏋️ Lift", sport:"🏓 Sport", cardio:"🚶 Cardio", rest:"Rest" };
+// your usual week, guessed from the last 6 weeks of workouts and cardio until you set it
+function weekGuess(){
+  const since = Date.now() - 42*dayMs, c = WK_DAYS.map(() => ({ lift:0, sport:0, cardio:0 })), wd = t => (new Date(t).getDay() + 6) % 7;
+  state.sessions.filter(x => x.start > since).forEach(x => c[wd(x.start)].lift++);
+  ((state.cardio || {}).log || []).filter(x => x.at > since).forEach(x => c[wd(x.at)][x.kind === "sport" ? "sport" : "cardio"]++);
+  const w = {}; c.forEach((d, i) => { w[i] = d.lift >= 2 ? "lift" : d.sport >= 2 ? "sport" : d.cardio >= 2 ? "cardio" : "rest"; }); return w;
+}
+const myWeek = () => state.goals.week || weekGuess();
 const SPLIT_PREF = { keep:"Keep my current days", auto:"Pick for me", full:"Full body", ul:"Upper / lower", ppl:"Push / pull / legs", bro:"Bro split" };
 const SS_PREF = { none:"No supersets", time:"Only to save time", max:"As many as fit" };
 // how you want to look, and the muscles that drive it
@@ -586,7 +605,10 @@ function migrate(){
   if (state.goals.cardio == null) state.goals.cardio = 150;
   { const g = state.goals; if (g.minutes === 75) g.minutes = 70; if (g.minutes === 90) g.minutes = 85; if (!MIN_OPTS[g.minutes]) g.minutes = 60;
     if (!g.split) g.split = "keep"; if (!g.ssPref) g.ssPref = "time"; if (!Array.isArray(g.looks)) g.looks = [];
-    ["strength","aches","love","notes"].forEach(k => { if (typeof g[k] !== "string") g[k] = ""; }); }
+    ["strength","aches","love","notes","height","sex","targetDate","targetWhat"].forEach(k => { if (typeof g[k] !== "string") g[k] = ""; });
+    if (!Array.isArray(g.noGear)) g.noGear = []; if (!g.week || typeof g.week !== "object") g.week = null; }
+  if (!state.rate) state.rate = {};
+  if (!state.aiPlan) state.aiPlan = { depth:"standard", research:false };
   if (!state.block){
     const ids = new Set(state.days.map(d => d.id)), first = state.sessions.find(s => ids.has(s.dayId));
     state.block = { id:uid(), n:1, start:startOfDay(first ? first.start : Date.now()), weeks:REC_WEEKS[state.goals.exp], auto:true, intro:false, scheme:0 };
@@ -1590,7 +1612,7 @@ function programView(){
         </div>
         <div class="row" style="gap:6px;flex-wrap:wrap"><span class="hint grow" style="font-size:12.5px">${REST_TIP[klass(ex)]}</span>${xi < d.items.length-1 ? `<button class="small ghost" data-act="piSS" data-d="${di}" data-x="${xi}" id="pss-${di}-${xi}">${it.ss?"Unlink superset":"🔗 Superset with next"}</button>` : ""}</div></div>`; }).join("");
     return `<div class="panel"><div class="row"><input type="text" id="dn-${di}" data-dname="${di}" value="${esc(d.name)}" maxlength="24" aria-label="Day name" style="font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:700">
-      <span class="iconbtns"><button id="du-${di}" data-act="dayUp" data-d="${di}" aria-label="Move day up" ${di===0?"disabled":""}>↑</button><button id="dr-${di}" data-act="dayRm" data-d="${di}" aria-label="Delete day">${confirmKey==="dayrm"+di?"Delete?":"✕"}</button></span></div>
+      <span class="iconbtns"><button id="du-${di}" data-act="dayUp" data-d="${di}" aria-label="Move day up" ${di===0?"disabled":""}>↑</button><button id="dr-${di}" data-act="dayRm" data-d="${di}" aria-label="Delete day">${confirmKey==="dayrm"+di?"Delete?":"✕"}</button></span></div>${d.when ? `<p class="hint" style="margin-top:-6px">📅 ${esc(d.when)} · about ${estMins(d.items)} min</p>` : `<p class="hint" style="margin-top:-6px">About ${estMins(d.items)} min</p>`}
       ${items || `<p class="hint">No exercises yet.</p>`}
       ${ssFixPanel(d, di)}
       <button data-act="pick" data-target="day" data-d="${di}" id="addEx-${di}">+ Add exercises</button></div>`;
@@ -1611,6 +1633,7 @@ function blockPanel(){
     <div class="gfield"><span class="gl">Refresh the plan every</span><div class="chips">${[4,5,6,7,8,10,12].map(w => `<button class="chip" data-act="bWeeks" data-v="${w}" id="bw-${w}" aria-pressed="${b.weeks===w}">${w} wk${w===rec?" ★":""}</button>`).join("")}</div>
       <p class="hint">★ Recommended for ${esc(EXPS[g.exp].toLowerCase())} of training: ${g.exp === "new" ? "beginners keep progressing on the same lifts for 8–12 weeks" : "most lifters refresh every 6–8 weeks, with an easier week built in"}. The app asks sooner if most of your lifts stall.</p></div>
     <div class="gfield"><span class="hint">Did this plan start on a different week?</span><div class="btnrow"><button class="small" data-act="bShift" data-v="-7" id="bShiftM">1 week earlier</button><button class="small" data-act="bShift" data-v="7" id="bShiftP" ${b.start + 7*dayMs > Date.now() ? "disabled" : ""}>1 week later</button></div></div>
+    ${state.roadmap && state.roadmap.steps ? `<details><summary style="cursor:pointer;font-weight:700">🗺️ Roadmap from ${esc(enDate(state.roadmap.made))}</summary>${state.roadmap.steps.map(x => `<p class="why">${x.block === b.n ? "▶ " : ""}Block ${x.block} · ${x.weeks} wk: ${esc(x.focus)}</p>`).join("")}</details>` : ""}
     <button data-act="openReview" id="openReview2">🔄 Review this block and build the next one</button>
     ${state.blocks.length ? `<details id="pastBlocks" ${pastOpen ? "open" : ""}><summary style="cursor:pointer;font-weight:700">Past blocks (${state.blocks.length})</summary>${[...state.blocks].reverse().map(pb => `<div class="rvx"><div class="row"><span class="n grow">Block ${pb.n}</span><span class="hint num">${new Date(pb.start).toLocaleDateString(undefined,{month:"short",day:"numeric"})} – ${new Date(pb.end).toLocaleDateString(undefined,{month:"short",day:"numeric"})}</span></div>
       <span class="why num">${plural(pb.sessions, "workout")} · ${Math.round((pb.adherence || 0) * 100)}% of planned${pb.best && pb.best.length ? ` · best: ${pb.best.map(([id, c]) => `${esc(exById(id).n)} ${pct(c)}`).join(", ")}` : ""}</span>
@@ -1619,11 +1642,26 @@ function blockPanel(){
 function goalsBody(){
   const g = state.goals;
   const chips = (k, map) => `<div class="chips">${Object.entries(map).map(([v, l]) => `<button class="chip" data-act="goal" data-k="${k}" data-v="${v}" id="g-${k}-${v}" aria-pressed="${g[k]===v}">${l}</button>`).join("")}</div>`;
-  return `<div class="gfield"><span class="gl">Main goal</span>${chips("goal", GOALS)}</div>
+  const wk = myWeek();
+  return `<div class="gfield"><span class="gl">About you <span class="hint" style="font-weight:400">(Claude reads these)</span></span>
+      <div class="row" style="gap:8px;flex-wrap:wrap"><input type="text" inputmode="numeric" id="g-age" data-gnum="age" value="${g.age || ""}" placeholder="Age" aria-label="Age" style="width:80px" autocomplete="off">
+      <input type="text" id="g-height" data-gtext="height" value="${esc(g.height)}" placeholder="Height, e.g. 5'11&quot;" aria-label="Height" style="width:150px" autocomplete="off"></div>
+      ${chips("sex", { m:"Male", f:"Female", x:"Rather not say" })}
+      <p class="hint">Bodyweight, waist and progress-photo measurements come from the Body tab.</p></div>
+    <div class="gfield"><span class="gl">Main goal</span>${chips("goal", GOALS)}</div>
     <div class="gfield"><span class="gl">How long you've trained consistently</span>${chips("exp", EXPS)}</div>
     <div class="gfield"><span class="gl">Priority muscles</span><div class="chips">${LIFT_MUSCLES.map(m => `<button class="chip" data-act="prio" data-v="${m}" id="gp-${slug(m)}" aria-pressed="${g.priority.includes(m)}">${m}</button>`).join("")}</div>
       <p class="hint">Up to 3. They get a little more volume, a second day if needed, and go first in the workout, where lifts gain the most (Nunes 2021).</p></div>
     <div class="gfield"><span class="gl">Where you train</span>${chips("where", WHERES)}</div>
+    <details class="gfield"><summary class="gl" style="cursor:pointer">My gym's equipment <span class="hint" style="font-weight:400">(${GEAR.length - g.noGear.length} of ${GEAR.length})</span></summary>
+      <p class="hint" style="margin:6px 0">Untick anything your gym doesn't have. Plans and swaps skip exercises that need it.</p>
+      <div class="chips">${GEAR.map(([k, l]) => `<button class="chip" data-act="gear" data-v="${k}" id="gg-${k}" aria-pressed="${!g.noGear.includes(k)}">${l}</button>`).join("")}</div></details>
+    <div class="gfield"><span class="gl">Your usual week</span><div class="chips">${WK_DAYS.map((d, i) => `<button class="chip" data-act="wkCycle" data-v="${i}" id="gw-${i}" aria-pressed="${wk[i] !== "rest"}">${d}: ${WEEK_KIND[wk[i]]}</button>`).join("")}</div>
+      <p class="hint">Tap a day to switch between lift, sport, cardio and rest.${g.week ? "" : " Guessed from your last 6 weeks."} Claude uses it to put each workout on a day, like no legs the day before racquetball.</p></div>
+    <div class="gfield"><span class="gl">Working toward a date? <span class="hint" style="font-weight:400">(optional)</span></span>
+      <div class="row" style="gap:8px;flex-wrap:wrap"><input type="date" id="g-tdate" data-gtext="targetDate" value="${esc(g.targetDate)}" aria-label="Target date" style="width:170px">
+      <input type="text" id="g-twhat" data-gtext="targetWhat" value="${esc(g.targetWhat)}" maxlength="160" placeholder="e.g. family cruise, beach-ready" aria-label="What it's for" class="grow" autocomplete="off"></div>
+      <p class="hint">Claude maps out the next 2–3 blocks toward it.</p></div>
     <div class="gfield"><span class="gl">Workout length</span><div class="chips">${Object.entries(MIN_OPTS).map(([v, l]) => `<button class="chip" data-act="goal" data-k="minutes" data-v="${v}" id="g-minutes-${v}" aria-pressed="${g.minutes===+v}">${l}</button>`).join("")}</div>
       <p class="hint">Counts every set, rest, superset and warm-up. New blocks are built to fit.</p></div>
     <div class="gfield"><span class="gl">Split for your next block</span>${chips("split", SPLIT_PREF)}
@@ -1813,7 +1851,7 @@ const loaded = ex => !["BW","BA"].includes(ex.e);
 function doneBefore(exId){ return state.sessions.some(s => s.items.some(it => it.ex === exId)); }
 function swapSuggestions(exId, exclude){
   const cur = exById(exId), pat = patternOf(cur), kl = klass(cur), curWords = words(cur.n);
-  const scored = lib().filter(x => x.id !== exId && !exclude.includes(x.id) && x.t === cur.t && x.m === cur.m).map(x => {
+  const scored = lib().filter(x => x.id !== exId && !exclude.includes(x.id) && x.t === cur.t && x.m === cur.m && gearOK(x)).map(x => {
     let sc = 0, why = [];
     if (patternOf(x) === pat){ sc += 4; }
     if (klass(x) === kl) sc += 2;
@@ -1991,6 +2029,7 @@ function planNext(opt){
     if ((g.goal === "strength" || g.goal === "both") && s.kl === "heavy" && ["BB","TB"].includes(x.e)){ sc += 2; why.push("barbell main lift for strength"); }
     if (weak.has(s.m) && s.kl !== "heavy" && stable(x)){ sc += 1; why.push("stable setup, so you can push close to failure"); }
     if (s.loaded && !loaded(x)) sc -= 3;
+    const rt = state.rate[x.id] || {}; if (rt.felt === "no") sc -= 2; else if (rt.felt === "yes" || rt.v === "keep"){ sc += 1; why.push("you rated it well"); }
     sc -= chosen.filter(c => c.m === s.m && c.angle === a).length * 1.5;
     if (chosen.some(c => c.m === s.m && near(c.id, x.id))) sc -= 2.5;   // "Seated Leg Curl" and "Single-Leg Seated Leg Curl" in one week is barely a change
     const eqDay = chosen.filter(c => c.di === di && c.e === x.e).length; if (eqDay >= 3) sc -= .5 * (eqDay - 2);
@@ -1999,7 +2038,7 @@ function planNext(opt){
   }
   function ranked(s, di, want){
     const inDay = new Set(chosen.filter(c => c.di === di).map(c => c.id));
-    const pool = lib().filter(x => x.m === s.m && x.t === s.t && x.id !== s.old && !avoid.has(x.id) && (!eqs || eqs.has(x.e)) && !inDay.has(x.id));
+    const pool = lib().filter(x => x.m === s.m && x.t === s.t && x.id !== s.old && !avoid.has(x.id) && (!eqs || eqs.has(x.e)) && !inDay.has(x.id) && gearOK(x) && (state.rate[x.id] || {}).v !== "drop");
     const fresh = pool.filter(x => !last.has(x.id));
     return (fresh.length ? fresh : pool).map(x => score(x, s, di, want)).sort((a, b) => b.sc - a.sc);
   }
@@ -2007,7 +2046,10 @@ function planNext(opt){
   const take = (s, di) => { const x = exById(s.cands[0].id); chosen.push({ m:s.m, angle:angleOf(x), id:x.id, di, e:x.e }); };
   days.flatMap((d, di) => d.items.map(s => ({ s, di })))
     .sort((a, b) => (prio.has(b.s.m) - prio.has(a.s.m)) || (KRANK[a.s.kl] - KRANK[b.s.kl]) || (a.s.pos - b.s.pos))
-    .forEach(({ s, di }) => { s.cands = ranked(s, di).slice(0, 6).map(c => ({ id:c.x.id, why:c.why })); if (!s.cands.length && s.old) s.cands = [keep(s)]; if (s.cands.length) take(s, di); });
+    .forEach(({ s, di }) => { s.cands = ranked(s, di).slice(0, 6).map(c => ({ id:c.x.id, why:c.why }));
+      const r0 = s.old && state.rate[s.old], rx = s.old && A.ex.find(r => r.id === s.old);
+      if (r0 && r0.v === "keep" && !(rx && (rx.stuck || rx.trend === "down"))) s.cands.unshift({ id:s.old, why:["you rated it a keeper and it's still progressing, so it stays"] });
+      if (!s.cands.length && s.old) s.cands = [keep(s)]; if (s.cands.length) take(s, di); });
   days.forEach(d => { d.items = d.items.filter(s => s.cands.length); });
   // 6. make sure each muscle is trained from its key angles (a press and a fly, a pulldown and a row, and so on)
   Object.keys(COVER).forEach(m => {
@@ -2137,6 +2179,7 @@ function reviewView(){
       <p class="hint">Compared by estimated 1-rep max from your first sessions in the block to your last ones.</p></div>
     <div class="panel"><h3>Muscles: this block → next</h3><div class="tablewrap"><table class="st"><thead><tr><th>Muscle</th><th>Sets a week</th><th>Days a week</th></tr></thead><tbody>${mRows}</tbody></table></div>
       ${mNotes}<p class="hint">About 10–20 hard sets per muscle a week works for most people. ★ is a priority muscle.</p></div>
+    ${ratePanel(A)}
     <div class="panel"><div class="row"><h3 class="grow">🎯 ${review.goals ? "Before planning: your goals" : "Your goals"}</h3><button class="small ghost" data-act="rvGoals" id="rvGoals">${review.goals ? "Done" : "Edit"}</button></div>
       ${review.goals ? goalsBody() : `<p class="hint">${esc(GOALS[g.goal])} · ${esc(EXPS[g.exp])} · ${g.priority.length ? `priority: ${esc(g.priority.join(", "))}` : "no priority muscles"} · ${esc(WHERES[g.where])} · ${esc(minLabel(g.minutes))} · ${esc(SPLIT_PREF[g.split])} · ${esc(SS_PREF[g.ssPref].toLowerCase())}</p>`}</div>
     <div class="panel"><h3>Next block</h3>
@@ -2153,6 +2196,16 @@ function reviewView(){
     <button class="primary" data-act="rvStart" id="rvStart">Start Block ${b.n + 1}</button>
     <p class="hint">Your history and records stay. The plan you're replacing is saved under Past blocks in the Program tab.</p>`;
 }
+// rate each exercise from this block: keep / fine / drop, and whether you felt it in the muscle it's for
+function ratePanel(A){
+  const L = A.ex.filter(r => LIFT_MUSCLES.includes(r.m)); if (!L.length) return "";
+  const ch = (id, k, v, l) => `<button class="chip" data-act="rate" data-id="${id}" data-k="${k}" data-v="${v}" id="rt-${k}-${v}-${id}" aria-pressed="${(state.rate[id] || {})[k] === v}">${l}</button>`;
+  return `<details class="panel" ${L.every(r => state.rate[r.id] && state.rate[r.id].at > state.block.start && state.rate[r.id].v) ? "" : "open"}><summary style="cursor:pointer"><b>⭐ Rate this block's exercises</b> <span class="hint">(optional, 30 seconds)</span></summary>
+    <p class="hint" style="margin:8px 0">Both planners use this. Keepers that are still progressing stay. Drops are left out. Ones you didn't feel in the right muscle rank lower.</p>
+    ${L.map(r => { const x = exById(r.id); return `<div class="rvx"><span class="n">${esc(x.n)}</span> <span class="hint">· ${esc(x.m)}</span>
+      <div class="chips" style="margin-top:4px">${ch(r.id, "v", "keep", "👍 Keep")}${ch(r.id, "v", "fine", "Fine")}${ch(r.id, "v", "drop", "👎 Drop")}</div>
+      <div class="chips" style="margin-top:4px">${ch(r.id, "felt", "yes", `Felt it in my ${esc(x.m.toLowerCase())}`)}${ch(r.id, "felt", "meh", "Sort of")}${ch(r.id, "felt", "no", "Not really")}</div></div>`; }).join("")}</details>`;
+}
 function archiveBlock(end){
   const old = state.block, A = analyzeBlock(old), ranked = A.ex.filter(r => r.ch != null && LIFT_MUSCLES.includes(r.m)).sort((x, y) => y.ch - x.ch);
   state.blocks.push({ id:old.id, n:old.n, start:old.start, end, weeks:old.weeks, scheme:old.scheme || 0, goal:state.goals.goal, sessions:A.S.length, adherence:A.adherence,
@@ -2162,7 +2215,8 @@ function archiveBlock(end){
 function startNextBlock(){
   const P = review.draft, old = state.block, now = Date.now(), ai = review.ai && review.ai.use && review.ai.plan;
   archiveBlock(now);
-  state.days = ai ? ai.days.map(d => ({ id:uid(), name:d.name, items:d.items.map(it => ({ ex:it.ex, sets:it.sets, lo:it.lo, hi:it.hi, rest:it.rest, ss:!!it.ss })) })) : P.days.map((d, di) => ({ id:uid(), name:d.name, items:d.items.map((s, xi) => { const c = pickFor(di, xi), x = exById(c.id); return { ex:c.id, sets:s.sets, lo:x.t === "time" ? (s.lo0 || 30) : s.lo, hi:x.t === "time" ? (s.hi0 || 60) : s.hi, rest:restFor(x), ss:!!s.ss }; }) }));
+  if (ai && ai.roadmap && ai.roadmap.length) state.roadmap = { made:now, steps:ai.roadmap };
+  state.days = ai ? ai.days.map(d => ({ id:uid(), name:d.name, ...(d.when ? { when:d.when } : {}), items:d.items.map(it => ({ ex:it.ex, sets:it.sets, lo:it.lo, hi:it.hi, rest:it.rest, ss:!!it.ss })) })) : P.days.map((d, di) => ({ id:uid(), name:d.name, items:d.items.map((s, xi) => { const c = pickFor(di, xi), x = exById(c.id); return { ex:c.id, sets:s.sets, lo:x.t === "time" ? (s.lo0 || 30) : s.lo, hi:x.t === "time" ? (s.hi0 || 60) : s.hi, rest:restFor(x), ss:!!s.ss }; }) }));
   state.block = { id:uid(), n:old.n + 1, start:now, weeks:review.weeks, auto:review.weeks === REC_WEEKS[state.goals.exp], intro:review.intro, scheme:P.schemeIdx };
   review = null; save(); render(); window.scrollTo(0,0);
   showToast(`Block ${state.block.n} is ready.${state.block.intro ? " Week 1 is your learning week." : ""}`);
@@ -2236,7 +2290,11 @@ const COACH_SCHEMA = { type:"object", additionalProperties:false, required:["rep
 const BLOCK_EX = { type:"object", additionalProperties:false, required:["exercise", "sets", "rep_low", "rep_high", "rest_seconds", "superset_with_next", "note"],
   properties:{ ...AI_EX.properties, rest_seconds:{ type:"integer" }, superset_with_next:{ type:"boolean" } } };
 const BLOCK_SCHEMA = { type:"object", additionalProperties:false, required:["summary", "days"],
-  properties:{ summary:{ type:"string" }, days:{ type:"array", items:{ type:"object", additionalProperties:false, required:["name", "focus", "exercises"], properties:{ name:{ type:"string" }, focus:{ type:"string" }, exercises:{ type:"array", items:BLOCK_EX } } } } } };
+  properties:{ summary:{ type:"string" }, days:{ type:"array", items:{ type:"object", additionalProperties:false, required:["name", "when", "focus", "exercises"], properties:{ name:{ type:"string" }, when:{ type:"string" }, focus:{ type:"string" }, exercises:{ type:"array", items:BLOCK_EX } } } },
+    roadmap:{ type:"array", items:{ type:"object", additionalProperties:false, required:["block", "weeks", "focus"], properties:{ block:{ type:"integer" }, weeks:{ type:"integer" }, focus:{ type:"string" } } } } } };
+BLOCK_SCHEMA.required.push("roadmap");
+const CRITIC_SCHEMA = { type:"object", additionalProperties:false, required:["pick", "verdict", "issues"], properties:{ pick:{ type:"integer" }, verdict:{ type:"string" },
+  issues:{ type:"array", items:{ type:"object", additionalProperties:false, required:["severity", "problem", "fix"], properties:{ severity:{ type:"string", enum:["major", "minor"] }, problem:{ type:"string" }, fix:{ type:"string" } } } } } };
 const PHOTO_SET = { type:"object", additionalProperties:false, required:["weight", "reps", "seconds", "warmup"],
   properties:{ weight:{ type:"number" }, reps:{ type:"integer" }, seconds:{ type:"integer" }, warmup:{ type:"boolean" } } };
 const PHOTO_SCHEMA = { type:"object", additionalProperties:false, required:["found", "done", "title", "date", "minutes", "note", "exercises"],
@@ -2406,6 +2464,7 @@ function cleanAiItems(list){
     const name = String((r && r.exercise) || "").trim().slice(0, 60), x = findEx(name);
     if (!x){ if (name) missing.push(name); return; }
     if (state.goals.avoid.includes(x.id)){ missing.push(`${x.n} (on your never-suggest list)`); return; }
+    if (!gearOK(x)){ missing.push(`${x.n} (your gym doesn't have the equipment)`); return; }
     if (seen.has(x.id)) return; seen.add(x.id);
     const isT = x.t === "time", lo = clampI(r.rep_low, isT ? 5 : 1, isT ? 600 : 50, isT ? 30 : 8), hi = Math.max(lo, clampI(r.rep_high, isT ? 5 : 1, isT ? 600 : 50, isT ? 60 : 12));
     items.push({ ex:x.id, sets:clampI(r.sets, 1, 8, 3), lo, hi, rest:r.rest_seconds ? clampI(r.rest_seconds, 30, 300, restFor(x)) : restFor(x), ss:!!r.superset_with_next, note:String(r.note || "").replace(/\s+/g, " ").trim().slice(0, 240) });
@@ -2577,6 +2636,34 @@ function readyText(A){
   return `Pre-workout check-ins this block: ${Object.entries(c).map(([k, n]) => `${n} ${READY_WORD[k] || k}`).join(", ")} (of ${R.length}).`;
 }
 const TIMING_TEXT = `Timing rule the app uses to check each day: 5 min general warm-up; per exercise 1 min to set up plus 3 min of ramp-up sets before a big main lift; each set takes about 50 s (big lifts), 45 s (other compounds) or 40 s (isolation) plus its rest between sets. A superset alternates two exercises with 20 s to switch and one rest per round of about 75% of the longer rest.`;
+function bodyText(){
+  const g = state.goals, out = [], lw = latest("w"), wt = weightTrend(), wa = latest("waist");
+  const prof = [g.age ? `${g.age} years old` : "", g.sex === "m" ? "male" : g.sex === "f" ? "female" : "", g.height ? `${g.height} tall` : ""].filter(Boolean).join(", ");
+  if (prof) out.push(`About them: ${prof}.`);
+  if (lw) out.push(`Bodyweight ${lw.v} ${U()} (weighed ${agoTxt(dayOf(lw.k))})${wt ? `, trending ${wt.perWeek >= 0 ? "+" : "−"}${Math.abs(wt.perWeek).toFixed(1)} ${U()} a week (${wt.pct >= 0 ? "+" : "−"}${Math.abs(wt.pct).toFixed(2)}% a week) over the last 4 weeks` : ""}.`);
+  const w0 = week7("waist", addDays(Date.now(), -28)), w1 = week7("waist", Date.now());
+  if (wa) out.push(`Waist ${wa.v} ${lenUnit()}${w0 != null && w1 != null ? `, ${w1 - w0 >= 0 ? "+" : "−"}${Math.abs(w1 - w0).toFixed(1)} ${lenUnit()} over 4 weeks` : ""}.`);
+  const goal = proteinGoal(), pd = [...Array(28)].map((_, i) => blog()[dkey(addDays(Date.now(), -i))]).filter(e => e && e.p);
+  if (goal && pd.length >= 5) out.push(`Protein: logged on ${pd.length} of the last 28 days, and hit the ${goal} g goal on ${pd.filter(e => e.p >= goal).length} of them.`);
+  ["front","back"].forEach(pose => { const P = photos().filter(q => q.pose === pose && q.a && q.a.ok && q.a.m && q.a.m.taper).sort((a, b) => a.at - b.at); if (!P.length) return;
+    const f = P[0], l = P[P.length-1]; out.push(`Progress photos (${pose}): ${pose === "front" ? "shoulder" : "upper-back"}-to-waist width ratio ${l.a.m.taper.toFixed(2)} on ${enDate(l.at)}${P.length >= 2 ? `, from ${f.a.m.taper.toFixed(2)} on ${enDate(f.at)} (${pct((l.a.m.taper - f.a.m.taper) / f.a.m.taper)})` : ""}.`); });
+  return out.join(" ");
+}
+function feelText(A){
+  const ids = [...new Set(A.ex.map(r => r.id).concat(Object.keys(state.notes || {})))];
+  const L = ids.map(id => { const r = state.rate[id] || {}, n = (state.notes || {})[id]; if (!r.v && !r.felt && !n) return "";
+    return `- ${exById(id).n}: ${[r.v ? { keep:"wants to keep it", fine:"it's fine", drop:"wants it gone" }[r.v] : "", r.felt ? { yes:"feels it in the target muscle", meh:"sort of feels it in the target muscle", no:"doesn't feel it in the target muscle" }[r.felt] : "", n ? `their note: "${n}"` : ""].filter(Boolean).join("; ")}`; }).filter(Boolean);
+  return L.length ? `How exercises feel to them (their own ratings and notes; weigh these heavily when picking exercises):\n${L.join("\n")}` : "";
+}
+function weekText(){ const w = myWeek(); return `Their usual week: ${WK_DAYS.map((d, i) => `${d} ${w[i]}`).join(", ")}${state.goals.week ? "" : " (guessed from the last 6 weeks)"}. "sport" is racquetball or another sport, hard on legs and shoulders.`; }
+function gearText(){ const n = state.goals.noGear || []; return n.length ? `Not at their gym: ${n.map(k => (GEAR.find(q => q[0] === k) || [k, k])[1]).join(", ")}. Don't pick exercises that need these.` : ""; }
+function horizonText(){
+  const g = state.goals, r = state.roadmap, out = [];
+  if (g.targetDate){ const wk = Math.round((new Date(g.targetDate).getTime() - Date.now()) / (7*dayMs)); out.push(`They're working toward ${g.targetWhat ? `"${g.targetWhat}" on ` : ""}${g.targetDate}, about ${wk} weeks away.`); }
+  else if (g.targetWhat) out.push(`Longer-term aim: "${g.targetWhat}".`);
+  if (r && r.steps && r.steps.length) out.push(`The roadmap planned last time (${enDate(r.made)}): ${r.steps.map(x => `block ${x.block} (${x.weeks} wk): ${x.focus}`).join("; ")}. Follow it unless their results say otherwise.`);
+  return out.join(" ");
+}
 function blockContent(){
   const P = review.draft || (review.draft = planNext({ days:review.days, seed:review.seed })), A = P.A, b = state.block, g = state.goals, sch = P.scheme;
   const mus = LIFT_MUSCLES.filter(m => A.mus[m]).map(m => `${m} ${A.mus[m].perWeek.toFixed(1)} a week (${TREND[A.mus[m].trend].toLowerCase()})`).join("; ");
@@ -2584,9 +2671,9 @@ function blockContent(){
   const mins = A.S.length ? Math.round(avg(A.S.map(x => (x.end - x.start) / 60000))) : 0;
   const draft = P.days.map((d, di) => `${d.name}: ${d.items.map((x, xi) => { const e = exById(pickFor(di, xi).id); return `${e.n} ${x.sets}×${x.lo}–${x.hi}${e.t === "time" ? "s" : ""}${x.ss ? " (superset with next)" : ""}`; }).join(", ")}`).join("\n");
   const keepNames = review.days === state.days.length && g.split === "keep";
-  return [nowText(), goalsText(), interviewText(), RESEARCH_BRIEF,
+  return [nowText(), goalsText(), bodyText(), interviewText(), gearText(), weekText(), horizonText(), RESEARCH_BRIEF,
     `Block ${b.n} is ending: ${plural(A.weeks, "week")} trained, ${plural(A.S.length, "workout")}, ${Math.round(A.adherence * 100)}% of planned workouts made${A.rir != null ? `, sets averaged ${A.rir.toFixed(1)} reps in reserve` : ""}${mins ? `, workouts averaged ${mins} minutes` : ""}. ${readyText(A)}`,
-    `How each lift did this block:\n${liftsText(A)}`,
+    `How each lift did this block:\n${liftsText(A)}`, feelText(A),
     `Hard sets per muscle this block: ${mus || "not enough data"}.`,
     `Weekly hard sets per muscle the app suggests for the next block, from its trends and their priorities (a guide, adjust with reason): ${tgt}.`,
     programText(), pastBlocksText(), historyText(6), overlapText(), TIMING_TEXT,
@@ -2600,13 +2687,16 @@ function blockContent(){
 - Supersets: set superset_with_next on the first exercise of a pair; the next exercise in the list is its partner. Only pair exercises that don't overlap by the rule above.
 - rest_seconds: rest between sets (for a superset, the rest after each round).
 - Order each day: priority muscles first, then heavy compounds, other compounds and isolation, with core and calves last.
+- "when": the weekday(s) for this workout from their usual week, e.g. "Mon" or "Mon or Tue". Put workouts on their lift days, keep hard leg work off the day before a sport day, and spread days that train the same muscles apart.
+- "roadmap": the next 2–3 blocks including this one (block ${b.n + 1} first), each with its weeks and a short focus, aimed at their date or longer-term goal if they have one, otherwise at their main goal.
 - "focus": a few words on the day's emphasis. "note": one short sentence on why that exercise is there and, for a stalled lift, what changed. "summary": 3–4 sentences on what changes from this block and why.`].filter(Boolean).join("\n\n");
 }
-const planJSON = plan => JSON.stringify({ summary:plan.summary, days:plan.days.map(d => ({ name:d.name, focus:d.focus || "", exercises:d.items.map(it => ({ exercise:exById(it.ex).n, sets:it.sets, rep_low:it.lo, rep_high:it.hi, rest_seconds:it.rest, superset_with_next:!!it.ss, note:it.note || "" })) })) });
+const planJSON = plan => JSON.stringify({ summary:plan.summary, roadmap:plan.roadmap || [], days:plan.days.map(d => ({ name:d.name, when:d.when || "", focus:d.focus || "", exercises:d.items.map(it => ({ exercise:exById(it.ex).n, sets:it.sets, rep_low:it.lo, rep_high:it.hi, rest_seconds:it.rest, superset_with_next:!!it.ss, note:it.note || "" })) })) });
 function toPlan(res){
-  const days = (Array.isArray(res.days) ? res.days : []).slice(0, 7).map((d, i) => { const c = cleanAiItems(d && d.exercises), name = String((d && d.name) || "").trim().slice(0, 24); return { name:name || `Day ${i + 1}`, focus:String((d && d.focus) || "").trim().slice(0, 80), items:c.items, missing:c.missing }; }).filter(d => d.items.length);
+  const days = (Array.isArray(res.days) ? res.days : []).slice(0, 7).map((d, i) => { const c = cleanAiItems(d && d.exercises), name = String((d && d.name) || "").trim().slice(0, 24); return { name:name || `Day ${i + 1}`, when:String((d && d.when) || "").trim().slice(0, 30), focus:String((d && d.focus) || "").trim().slice(0, 80), items:c.items, missing:c.missing }; }).filter(d => d.items.length);
   if (!days.length) throw { kind:"bad" };
-  return { summary:String(res.summary || "").trim(), days };
+  const roadmap = (Array.isArray(res.roadmap) ? res.roadmap : []).slice(0, 4).map(x => ({ block:clampI(x.block, 1, 999, 1), weeks:clampI(x.weeks, 1, 16, 6), focus:String(x.focus || "").trim().slice(0, 160) })).filter(x => x.focus);
+  return { summary:String(res.summary || "").trim(), days, roadmap };
 }
 // The app's own check of a plan: time, balance, frequency, superset overlap, library names. Hard problems go back to Claude.
 function checkPlan(plan){
@@ -2634,7 +2724,7 @@ async function blockCall(content){
   try{ return toPlan(await go("max")); }
   catch(e){ if (e && e.kind === "badreq" && /effort|max/i.test(e.detail || "")) return toPlan(await go("high")); throw e; }
 }
-const fixText = (base, plan, chk, extra) => `${base}\n\nYour plan so far:\n${planJSON(plan)}\n\n${extra || ""}${chk.hard.length ? `The app checked it and found these problems. Fix every one:\n${chk.hard.map(t => `- ${t}`).join("\n")}\n` : ""}${chk.soft.length ? `Also look again at these. Change them, or keep them only with a clear reason in the note:\n${chk.soft.map(t => `- ${t}`).join("\n")}\n` : ""}Return the full corrected plan. Keep everything that already works.`;
+const fixText = (base, plan, chk, extra, crit) => `${base}\n\nYour plan so far:\n${planJSON(plan)}\n\n${extra || ""}${crit && crit.length ? `A second, independent coach reviewed it. Fix every major point; apply the minor ones where they genuinely help:\n${crit.map(i => `- [${i.severity}] ${i.problem} Fix: ${i.fix}`).join("\n")}\n` : ""}${chk.hard.length ? `The app checked it and found these problems. Fix every one:\n${chk.hard.map(t => `- ${t}`).join("\n")}\n` : ""}${chk.soft.length ? `Also look again at these. Change them, or keep them only with a clear reason in the note:\n${chk.soft.map(t => `- ${t}`).join("\n")}\n` : ""}Return the full corrected plan. Keep everything that already works.`;
 // plan, check, and send it back to fix what's off (up to 2 rounds), keeping the best version
 async function planRounds(r, ai, first, base, rounds, extra){
   let plan = await first, chk = checkPlan(plan);
@@ -2646,16 +2736,65 @@ async function planRounds(r, ai, first, base, rounds, extra){
   }
   return { plan, chk };
 }
+// Live research: Claude searches the web for recent studies that bear on this plan and writes a short brief with sources.
+async function askResearch(text){
+  if (!aiKey) throw { kind:"nokey" };
+  let A; try{ A = await sdk(); }catch(e){ throw { kind:"offline" }; }
+  const client = new A({ apiKey:aiKey, dangerouslyAllowBrowser:true, maxRetries:1, timeout:600000 });
+  let res; try{ res = await client.beta.messages.stream({ model:AI_MODEL, max_tokens:16000, tools:[{ type:"web_search_20250305", name:"web_search", max_uses:6 }], messages:[{ role:"user", content:text }] }).finalMessage(); }
+  catch(e){ throw aiErr(e, A); }
+  return (res.content || []).filter(b => b.type === "text").map(b => b.text).join("").trim().slice(0, 7000);
+}
+function researchPrompt(){
+  const g = state.goals, L = (g.looks || []).map(k => LOOKS[k] && LOOKS[k][0]).filter(Boolean);
+  return `Search for the most recent, highest-quality research (meta-analyses and randomized trials, especially from the last two or three years) that should shape this person's next resistance-training block. Them: ${[g.age ? `${g.age} years old` : "", g.sex === "m" ? "male" : g.sex === "f" ? "female" : "", EXPS[g.exp] + " of consistent training"].filter(Boolean).join(", ")}. Goal: ${GOALS[g.goal]}${L.length ? `; wants: ${L.join(", ")}` : ""}${g.priority.length ? `; priority muscles: ${g.priority.join(", ")}` : ""}. ${review.days} days a week, ${minLabel(g.minutes)} per workout, split preference: ${SPLIT_PREF[g.split]}, supersets: ${SS_PREF[g.ssPref].toLowerCase()}.${g.aches ? ` Nagging: ${g.aches}.` : ""}
+Cover weekly volume and frequency, proximity to failure, exercise selection (including lengthened-position training), supersets and time-efficient methods, and anything specific to their age and goals. Write a tight brief of practical takeaways, under 500 words, each with author, year and a link. Only include findings you actually found in your search, and say where evidence is thin or mixed.`;
+}
+function criticContent(base, plans){
+  return `${base}\n\n---\nYou are now a different coach: demanding, independent and skeptical. You did NOT write ${plans.length > 1 ? "these plans" : "this plan"}. ${plans.length > 1 ? `Compare the ${plans.length} plans below and pick the one most likely to get this person the results they want ("pick" is its number, from 0)` : `Review the plan below ("pick" is 0)`}. Then list what's still wrong with the plan you picked: wasted or redundant exercises, muscles under- or over-served for their goals and look, recovery across the week and their schedule, superset pairs, exercise order, and anything that ignores their answers, ratings, notes, stalls, aches, equipment or body data. "major" means it would clearly hold back results or risk injury; "minor" is polish. Give a concrete fix for each, using exact library names. Don't nitpick: if it's genuinely good, say so and return few or no issues. "verdict": 2–3 sentences on the plan you picked.\n\n`
+    + plans.map((p, i) => `Plan ${i}${p.angle ? ` (${p.angle})` : ""}:\n${planJSON(p)}\nThe app's own checks on it: ${p.chk.hard.length ? p.chk.hard.join(" ") : "all passed"}`).join("\n\n");
+}
+const ANGLES = ["Conservative: keep what's working and change only what the results say to change", "Balanced: the best plan you can write", "Bold: bigger changes aimed squarely at their look and strength goals"];
 async function aiBlockGo(){
   const r = review; if (!r || (r.ai && r.ai.busy)) return;
-  const base = blockContent(), ai = r.ai = { busy:true, err:"", plan:null, use:false, stage:"Claude is thinking through your block at its highest effort…", ask:"" };
-  render();
+  const pref = state.aiPlan, ai = r.ai = { busy:true, err:"", plan:null, use:false, stage:"", ask:"" }, live = () => review === r && r.ai === ai;
+  const stage = t => { ai.stage = t; if (live()) render(); };
   try{
-    const out = await planRounds(r, ai, blockCall(base), base, 2);
-    if (!out) return;
-    ai.plan = out.plan; ai.checks = out.chk; ai.base = base; ai.use = true;
-  }catch(e){ if (review === r && r.ai === ai) ai.err = aiFail(e); }
-  if (review === r && r.ai === ai){ ai.busy = false; render(); }
+    let base = blockContent();
+    if (pref.research){
+      stage("Claude is searching for the latest research");
+      try{ const brief = await askResearch(researchPrompt()); if (brief){ ai.research = brief; base += `\n\nFresh research Claude found today, with sources. Weigh it alongside the brief above:\n${brief}`; } }
+      catch(e){ ai.researchErr = aiFail(e); }
+      if (!live()) return;
+    }
+    const angles = pref.depth === "deep" ? ANGLES : [null];
+    stage(angles.length > 1 ? "Claude is writing 3 different plans at its highest effort" : "Claude is thinking through your block at its highest effort");
+    const got = await Promise.allSettled(angles.map(a => blockCall(a ? `${base}\n\nApproach for this draft: ${a}.` : base)));
+    if (!live()) return;
+    const plans = got.map((g, k) => g.status === "fulfilled" ? Object.assign(g.value, { angle:angles[k] ? angles[k].split(":")[0] : "", chk:checkPlan(g.value) }) : null).filter(Boolean);
+    if (!plans.length) throw got[0].reason;
+    stage(plans.length > 1 ? "A second Claude, acting as a skeptical coach, is comparing the plans and picking the best" : "A second Claude, acting as a skeptical coach, is reviewing the plan");
+    let crit = null;
+    try{ crit = await askClaude({ system:aiSystem(), content:[{ type:"text", text:criticContent(base, plans) }], schema:CRITIC_SCHEMA, effort:"max", timeout:900000, maxTokens:32000, stream:true }); }catch(e){ ai.criticErr = aiFail(e); }
+    if (!live()) return;
+    let plan = crit && plans[crit.pick] ? plans[crit.pick] : [...plans].sort((a, b) => a.chk.hard.length - b.chk.hard.length)[0], chk = plan.chk;
+    const issues = crit ? (crit.issues || []).slice(0, 12) : [];
+    ai.critic = crit ? { verdict:String(crit.verdict || ""), issues, n:plans.length, angle:plan.angle } : null;
+    if (chk.hard.length || chk.soft.length || issues.length){
+      stage(`Claude is revising: ${plural(chk.hard.length + chk.soft.length + issues.length, "point")} from the checks and the second coach`);
+      const p2 = await blockCall(fixText(base, plan, chk, "", issues)), c2 = checkPlan(p2);
+      if (!live()) return;
+      if (c2.hard.length <= chk.hard.length){ plan = p2; chk = c2; }
+      if (chk.hard.length){
+        stage(`The app's check still found ${plural(chk.hard.length, "thing")}. Claude is fixing ${chk.hard.length > 1 ? "them" : "it"}`);
+        const p3 = await blockCall(fixText(base, plan, { hard:chk.hard, soft:[] })), c3 = checkPlan(p3);
+        if (!live()) return;
+        if (c3.hard.length <= chk.hard.length){ plan = p3; chk = c3; }
+      }
+    }
+    ai.plan = plan; ai.checks = chk; ai.base = base; ai.use = true;
+  }catch(e){ if (live()) ai.err = aiFail(e); }
+  if (live()){ ai.busy = false; render(); }
 }
 // a change you ask for in plain words, then the same check and one round of fixes
 async function aiBlockRevise(){
@@ -2676,6 +2815,9 @@ function aiBlockPanel(){
   if (!aiKey) return state.aiHide ? "" : `<div class="panel" id="aiBlock" style="gap:8px"><b>🤖 Want Claude to plan it?</b><span class="hint">With your own Claude API key, Claude reads your results, past blocks and answers above, plans at its highest effort, and the app checks the plan and has Claude fix anything off. The app's plan below works without it.</span>
     <div class="btnrow"><button class="small" data-act="aiSetup" id="aiSetupB">Set it up</button></div></div>`;
   if (!ai) return `<div class="panel" id="aiBlock" style="gap:8px"><b>🤖 Plan it with Claude</b><span class="hint">Claude reads everything: your answers above, how every lift did this block and before, stalls and why, superset fatigue and your check-ins, plus the research the app follows. Then the app checks each day's time, each muscle's sets and days, and every superset pair, and sends it back to fix anything off. It takes a few minutes and uses more API credit than a quick question. The app's plan stays too, so you can compare.</span>
+    <div class="gfield"><span class="gl">How deep</span><div class="chips"><button class="chip" data-act="aiDepth" data-v="standard" id="aiDepth-standard" aria-pressed="${state.aiPlan.depth !== "deep"}">One plan, reviewed</button><button class="chip" data-act="aiDepth" data-v="deep" id="aiDepth-deep" aria-pressed="${state.aiPlan.depth === "deep"}">3 plans, best one picked</button></div>
+      <p class="hint">Either way, a second Claude reviews the plan as a skeptical coach and the first one fixes what it finds. “3 plans” writes a cautious, a balanced and a bold version and keeps the best: about 3× the cost.</p></div>
+    <div class="row"><span class="grow"><b>Look up the latest research</b><br><span class="hint">Claude searches the web for recent studies first and plans with them. Adds a few minutes and some cost. Needs web search turned on for your API key's organization in the Anthropic Console.</span></span><button class="chip" data-act="aiResearch" id="aiResearch" aria-pressed="${!!state.aiPlan.research}">${state.aiPlan.research ? "On" : "Off"}</button></div>
     <button data-act="aiBlockGo" id="aiBlockBtn">🤖 Plan my next block with Claude</button></div>`;
   if (ai.busy) return `<div class="panel" id="aiBlock" style="gap:8px" role="status"><b>🤖 ${esc(ai.stage || "Claude is planning")}<span class="pulse">…</span></b><span class="hint">This can take a few minutes. Keep the app open; you can keep reading the review.</span></div>`;
   if (!ai.plan) return `<div class="panel" id="aiBlock" style="gap:8px"><b>🤖 Plan it with Claude</b><p class="err">${esc(ai.err)}</p><button data-act="aiBlockGo" id="aiBlockBtn">Try again</button></div>`;
@@ -2686,12 +2828,15 @@ function aiBlockPanel(){
     ${c.hard.length ? `<div class="err"><b>Still off after Claude's fixes:</b>${c.hard.map(t => `<div>• ${esc(t)}</div>`).join("")}</div>`
       : `<p class="ok" style="margin:0">✓ The app checked it: every day fits ${g.minutes} minutes, every muscle gets the right sets${g.split === "bro" ? "" : " on enough days"}, and no superset pairs muscles that overlap.</p>`}
     ${c.soft.length ? `<p class="hint">Worth a look: ${c.soft.map(esc).join(" ")} Claude's note on it says why.</p>` : ""}
+    ${ai.critic ? `<details><summary style="cursor:pointer;font-weight:700">🧐 Second coach's review${ai.critic.n > 1 ? ` (picked the ${esc(ai.critic.angle.toLowerCase())} plan of ${ai.critic.n})` : ""}</summary><p class="hint" style="margin-top:6px">${esc(ai.critic.verdict)}</p>${ai.critic.issues.length ? `<p class="hint" style="font-size:13px">It raised ${plural(ai.critic.issues.length, "point")}, and Claude revised the plan for them:</p>${ai.critic.issues.map(i => `<p class="why">${i.severity === "major" ? "❗" : "•"} ${esc(i.problem)} <i>${esc(i.fix)}</i></p>`).join("")}` : ""}</details>` : ai.criticErr ? `<p class="hint">The second coach couldn't review it this time (${esc(ai.criticErr)}). The app's checks still ran.</p>` : ""}
+    ${ai.research ? `<details><summary style="cursor:pointer;font-weight:700">🔬 Research Claude found</summary><p class="hint" style="margin-top:6px;white-space:pre-wrap">${esc(ai.research)}</p></details>` : ai.researchErr ? `<p class="hint">Couldn't search for research (${esc(ai.researchErr)}), so Claude planned from what it knows.</p>` : ""}
+    ${ai.plan.roadmap && ai.plan.roadmap.length ? `<div><b>🗺️ Roadmap</b>${ai.plan.roadmap.map(x => `<p class="why">Block ${x.block} · ${x.weeks} wk: ${esc(x.focus)}</p>`).join("")}</div>` : ""}
     <div class="gfield"><span class="gl">Which plan to start</span><div class="chips"><button class="chip" data-act="aiUse" data-v="1" id="aiUse-1" aria-pressed="${ai.use}">Claude's plan</button><button class="chip" data-act="aiUse" data-v="0" id="aiUse-0" aria-pressed="${!ai.use}">The app's plan</button></div></div>
     <div class="gfield"><label class="gl" for="aiAskIn">Want something changed?</label><textarea id="aiAskIn" rows="2" maxlength="400" placeholder="e.g. swap hack squat for leg press, more arm work on day 3">${esc(ai.ask || "")}</textarea>
       <button class="small" data-act="aiRevise" id="aiRevise">Ask Claude to change it</button></div></div>`;
 }
 function aiDayCards(plan){
-  return plan.days.map(d => `<div class="panel"><div class="row"><h3 class="grow">${esc(d.name)}</h3><span class="hint num">about ${estMins(d.items)} min</span></div>${d.focus ? `<p class="hint" style="margin-top:-6px">${esc(d.focus)}</p>` : ""}${d.items.map((it, i) => { const x = exById(it.ex), nx = it.ss && d.items[i+1] ? exById(d.items[i+1].ex) : null, w = nx ? ssWarnText(x, nx) : "";
+  return plan.days.map(d => `<div class="panel"><div class="row"><h3 class="grow">${esc(d.name)}</h3><span class="hint num">about ${estMins(d.items)} min</span></div>${d.focus || d.when ? `<p class="hint" style="margin-top:-6px">${d.when ? `📅 ${esc(d.when)}${d.focus ? " · " : ""}` : ""}${esc(d.focus || "")}</p>` : ""}${d.items.map((it, i) => { const x = exById(it.ex), nx = it.ss && d.items[i+1] ? exById(d.items[i+1].ex) : null, w = nx ? ssWarnText(x, nx) : "";
     return `<div class="rvx"><div class="row"><span class="grow"><span class="n">${esc(x.n)}</span> <span class="hint">· ${esc(x.m)}</span></span><span class="num hint" style="white-space:nowrap">${it.sets} × ${it.lo}–${it.hi}${x.t === "time" ? "s" : ""} · rest ${fmtTime(it.rest)}</span></div>${nx ? `<span class="sslabel">🔗 Superset with ${esc(nx.n)}</span>` : ""}${w ? `<p class="why" style="color:var(--bad)">⚠️ ${esc(w)}</p>` : ""}${it.note ? `<p class="why">${esc(it.note)}</p>` : ""}</div>`; }).join("")}
     ${d.missing.length ? `<p class="hint">Left out: ${esc(d.missing.join(", "))}.</p>` : ""}</div>`).join("");
 }
@@ -2965,6 +3110,9 @@ document.addEventListener("click", e => {
       if (state.days.length) confirmThen("tpl"+b.dataset.v, doIt); else doIt(); break;
     }
     // goals & blocks
+    case "gear": { const L = state.goals.noGear, k = b.dataset.v, i = L.indexOf(k); if (i >= 0) L.splice(i, 1); else L.push(k); if (review){ review.draft = null; review.pick = {}; } save(); render(); break; }
+    case "wkCycle": { const w = state.goals.week || (state.goals.week = weekGuess()), i = b.dataset.v, order = ["lift","sport","cardio","rest"]; w[i] = order[(order.indexOf(w[i]) + 1) % 4]; save(); render(); break; }
+    case "rate": { const id = b.dataset.id, k = b.dataset.k, r = state.rate[id] || (state.rate[id] = {}); r[k] = r[k] === b.dataset.v ? null : b.dataset.v; r.at = Date.now(); if (review){ review.draft = null; review.pick = {}; } save(); render(); break; }
     case "look": { const L = state.goals.looks, k = b.dataset.v, i = L.indexOf(k); if (i >= 0) L.splice(i, 1); else L.push(k); state.goals.set = true; if (review){ review.draft = null; review.pick = {}; } save(); render(); break; }
     case "goal": { const k = b.dataset.k, v = k === "minutes" ? +b.dataset.v : b.dataset.v; state.goals[k] = v; state.goals.set = true;
       if (k === "exp" && state.block.auto) state.block.weeks = REC_WEEKS[v];
@@ -3091,6 +3239,8 @@ document.addEventListener("click", e => {
     case "plStart": plogStart(); break;
     case "aiBlockGo": aiBlockGo(); break;
     case "aiRevise": aiBlockRevise(); break;
+    case "aiDepth": state.aiPlan.depth = b.dataset.v; save(); render(); break;
+    case "aiResearch": state.aiPlan.research = !state.aiPlan.research; save(); render(); break;
     case "aiUse": if (review && review.ai) review.ai.use = b.dataset.v === "1"; render(); break;
     case "aiSetup": aiSetup(); break;
     case "aiHide": state.aiHide = true; save(); render(); break;
@@ -3110,6 +3260,7 @@ document.addEventListener("input", e => {
   if (t.dataset.dname != null){ state.days[+t.dataset.dname].name = t.value; save(); }
   if (t.id === "aiAskIn" && review && review.ai) review.ai.ask = t.value;
   if (t.dataset.gtext){ state.goals[t.dataset.gtext] = t.value.slice(0, 600); save(); }
+  if (t.dataset.gnum){ const v = parseInt(t.value.replace(/\D/g, ""), 10); state.goals[t.dataset.gnum] = isNaN(v) ? null : Math.min(99, v); save(); }
   if (t.id === "restoreBox") restoreText = t.value;
   if (t.id === "cdMin" && cardioUI){ cardioUI.min = t.value.replace(/\D/g, "").slice(0, 3); cardioUI.err = ""; if (t.value !== cardioUI.min) t.value = cardioUI.min; }
   if (t.id === "cmpRange"){ cmp.split = +t.value; const top = document.getElementById("cmpTop"); if (top) top.style.clipPath = `inset(0 0 0 ${t.value}%)`; }
