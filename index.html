@@ -1102,16 +1102,16 @@ function nudges(){
   return out.join("");
 }
 // before a workout: a quick check on how you feel, which holds targets steady on a rough day
-// Readiness check before a workout. Points: sleep under 6 h −2, 6–7 h −1, 7–8 h 0, 8+ h +1; soreness 1–2 0, 3 −1, 4 −2,
+// Readiness check before a workout. Points: sleep under 6 h −2, 6–6:45 −1, 6:45–7:30 0, 7:30–8:15 +1, 8:15+ +1; soreness 1–2 0, 3 −1, 4 −2,
 // 5 −3; energy 1 −2, 2 −1, 3 0, 4 +1, 5 +2. Total: +2 or more great, −1 to +1 normal, −2 to −3 off, −4 to −5 rough,
 // −6 or less recovery. Soreness 5 is at least a rough day, and soreness 4+ can't be a great one.
-const READY_Q = [["sleep","Sleep last night",[["lt6","Under 6 h"],["6-7","6–7 h"],["7-8","7–8 h"],["8+","8+ h"]]],
+const READY_Q = [["sleep","Sleep last night",[["lt6","Under 6"],["6-645","6–6:45"],["645-730","6:45–7:30"],["730-815","7:30–8:15"],["815+","8:15+"]]],
   ["sore","Soreness",["1","2","3","4","5"].map(v => [v, v])],["energy","Energy",["1","2","3","4","5"].map(v => [v, v])]];
 const READY_MEAN = {
-  sleep:{ lt6:"Short sleep costs strength and reps.", "6-7":"A little short.", "7-8":"Solid night.", "8+":"Fully rested." },
+  sleep:{ lt6:"Short sleep costs strength and reps.", "6-645":"Short. Expect a rep or two less.", "645-730":"A little under, but workable.", "730-815":"Solid night.", "815+":"Fully rested." },
   sore:{ 1:"1 · None.", 2:"2 · A little stiff, gone once you warm up.", 3:"3 · Sore, but it won't change your lifts much.", 4:"4 · Very sore. It'll cost you some reps.", 5:"5 · Painful. It hurts to move through a full range." },
   energy:{ 1:"1 · Running on empty.", 2:"2 · Low, dragging a bit.", 3:"3 · Normal.", 4:"4 · Good, ready to go.", 5:"5 · Great, could run through a wall." } };
-const READY_PTS = { sleep:{ lt6:-2, "6-7":-1, "7-8":0, "8+":1 }, sore:{ 1:0, 2:0, 3:-1, 4:-2, 5:-3 }, energy:{ 1:-2, 2:-1, 3:0, 4:1, 5:2 } };
+const READY_PTS = { sleep:{ lt6:-2, "6-645":-1, "645-730":0, "730-815":1, "815+":1 }, sore:{ 1:0, 2:0, 3:-1, 4:-2, 5:-3 }, energy:{ 1:-2, 2:-1, 3:0, 4:1, 5:2 } };
 const READY_MSG = {
   recovery:"Recovery day: one set fewer on each exercise, no weight jumps, and stop 3–4 reps short of failure. Showing up keeps the habit, and you'll be stronger for it next time.",
   rough:"Rough day: weights hold and you leave an extra rep in reserve. The targets are a floor, not a ceiling: if you feel good once you're going, beat them.",
@@ -1142,7 +1142,7 @@ function readyView(){
     <div class="row"><h2 class="grow">How are you feeling?</h2><button class="small ghost" data-act="rdClose" id="rdClose">Cancel</button></div>
     ${READY_Q.map(([k, l, opts]) => `<div class="rdrow"><span class="gl">${l}${k === "sore" ? " <span class=\"hint\" style=\"font-weight:400\">(1 none · 5 painful)</span>" : k === "energy" ? " <span class=\"hint\" style=\"font-weight:400\">(1 empty · 5 great)</span>" : ""}</span><div class="chips">${opts.map(([v, txt]) => `<button class="chip" data-act="rdPick" data-k="${k}" data-v="${v}" id="rd-${k}-${v}" aria-pressed="${a[k]===v}">${txt}</button>`).join("")}</div><span class="hint" style="font-size:13px">${READY_MEAN[k][a[k]] || ""}</span></div>`).join("")}
     ${(lv => `<p class="${lv === "rough" || lv === "recovery" ? "err" : lv === "great" ? "ok" : "hint"}"><b>Score ${(t => t > 0 ? "+" + t : t < 0 ? "−" + -t : t)(readyScore(a))}.</b> ${READY_MSG[lv]}</p>`)(readyLevel(a))}
-    <details><summary class="hint" style="cursor:pointer">How the score works</summary><p class="hint" style="font-size:13px;margin-top:6px">Sleep: under 6 h −2, 6–7 h −1, 7–8 h 0, 8+ h +1. Soreness: 1–2 → 0, 3 → −1, 4 → −2, 5 → −3. Energy: 1 → −2, 2 → −1, 3 → 0, 4 → +1, 5 → +2.<br>Total +2 or more: great · −1 to +1: normal · −2 to −3: off · −4 to −5: rough · −6 or less: recovery. Soreness 5 is always at least a rough day, and soreness 4 or 5 can't be a great one.<br>Rough, off and recovery days don't count toward a stall unless you make progress anyway.</p></details>
+    <details><summary class="hint" style="cursor:pointer">How the score works</summary><p class="hint" style="font-size:13px;margin-top:6px">Sleep: under 6 h −2, 6–6:45 −1, 6:45–7:30 0, 7:30–8:15 +1, 8:15+ +1. Soreness: 1–2 → 0, 3 → −1, 4 → −2, 5 → −3. Energy: 1 → −2, 2 → −1, 3 → 0, 4 → +1, 5 → +2.<br>Total +2 or more: great · −1 to +1: normal · −2 to −3: off · −4 to −5: rough · −6 or less: recovery. Soreness 5 is always at least a rough day, and soreness 4 or 5 can't be a great one.<br>Rough, off and recovery days don't count toward a stall unless you make progress anyway.</p></details>
     <button class="primary" data-act="rdStart" id="rdStart">Start ${esc(day ? day.name : "workout")}</button>
     <button class="ghost small" data-act="rdNever" id="rdNever">Start, and stop asking before workouts</button></div></div></div>`;
 }
@@ -2661,7 +2661,7 @@ document.addEventListener("click", e => {
   const act = b.dataset.act, d = b.dataset.d != null ? +b.dataset.d : null, x = b.dataset.x != null ? +b.dataset.x : null;
   switch(act){
     case "tab": state.tab = b.dataset.v; summary = null; save(); render(); window.scrollTo(0,0); break;
-    case "startDay": if (state.askReady){ ready = { i:+b.dataset.i, a:{ sleep:"7-8", sore:"2", energy:"3" } }; render(); } else startSession(state.days[+b.dataset.i]); break;
+    case "startDay": if (state.askReady){ ready = { i:+b.dataset.i, a:{ sleep:"730-815", sore:"2", energy:"3" } }; render(); } else startSession(state.days[+b.dataset.i]); break;
     case "rdPick": ready.a[b.dataset.k] = b.dataset.v; render(); break;
     case "rdClose": ready = null; render(); break;
     case "rdNever": state.askReady = false; showToast("Okay, no check-in before workouts. Turn it back on in Program → Settings.");
