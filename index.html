@@ -475,6 +475,18 @@ const GEAR = [["hack","Hack squat",/Hack Squat/],["pendulum","Pendulum squat",/P
   ["backext","Back extension / GHD",/Glute-Ham|Back Extension|Hyperextension|Reverse Hyper/],["calfmach","Calf raise machines",/Seated Calf Raise|Donkey Calf|Standing Calf Raise$/],
   ["landmine","Landmine",/Landmine/],["trapbar","Trap bar",/Trap Bar/],["dips","Dip station",/Parallel Bar Dip|^Triceps Dip|^Dip/],["pullbar","Pull-up bar",/Pull-Up|Chin-Up|Hanging|Dead Hang|Toes to Bar/]];
 const gearOK = x => !(state.goals.noGear || []).some(k => { const g = GEAR.find(q => q[0] === k); return g && (g[3] ? x.e === g[3] : g[2].test(x.n)); });
+// One side at a time: named single-arm/leg moves, plus anything you switch on yourself (like Bayesian curls one arm at a time)
+const UNI_RE = /Single-Arm|Single-Leg|One-Arm|One-Leg|Bulgarian|Split Squat|Lunge|Step-Up|Pistol|Cossack|Skater|Shrimp|Suitcase|Copenhagen|Side Plank|Kickstand|Concentration Curl|Cable Lateral Raise|Glute Kickback|Cable Hip Abduction|^Dumbbell Row$|Meadows Row|Kroc Row/;
+const isUni = ex => state.uni[ex.id] != null ? state.uni[ex.id] : UNI_RE.test(ex.n);
+const SIDE = { L:"Left", R:"Right" };
+// the side you led with the last time you did this exercise
+function lastFirst(exId){ for (let i = state.sessions.length - 1; i >= 0; i--){ const it = state.sessions[i].items.find(q => q.ex === exId && q.first); if (it) return { side:it.first, at:state.sessions[i].end }; } return null; }
+function sideRow(it, ex, xi){
+  if (!isUni(ex)) return "";
+  const lf = lastFirst(it.ex), sug = lf ? (lf.side === "L" ? "R" : "L") : null;
+  return `<div class="row" style="gap:8px;flex-wrap:wrap;align-items:center"><span class="hint" style="font-weight:700">Started with</span><span class="chips">${["L","R"].map(k => `<button class="chip" data-act="side" data-x="${xi}" data-v="${k}" id="side-${xi}-${k}" aria-pressed="${it.first === k}">${SIDE[k]}${!it.first && sug === k ? " ★" : ""}</button>`).join("")}</span>
+    <span class="hint" style="font-size:12.5px;flex-basis:100%">${lf ? `Last time (${agoTxt(lf.at)}) you started with your ${SIDE[lf.side].toLowerCase()}, so lead with your ${SIDE[sug].toLowerCase()} today.${it.first ? "" : " It's logged when you finish your first set; tap to change."}` : "Tap the side you start with, and next time the app tells you to lead with the other one."}</span></div>`;
+}
 const WK_DAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 const WEEK_KIND = { lift:"🏋️ Lift", sport:"🏓 Sport", cardio:"🚶 Cardio", rest:"Rest" };
 // your usual week, guessed from the last 6 weeks of workouts and cardio until you set it
@@ -608,6 +620,7 @@ function migrate(){
     ["strength","aches","love","notes","height","sex","targetDate","targetWhat"].forEach(k => { if (typeof g[k] !== "string") g[k] = ""; });
     if (!Array.isArray(g.noGear)) g.noGear = []; if (!g.week || typeof g.week !== "object") g.week = null; }
   if (!state.rate) state.rate = {};
+  if (!state.uni) state.uni = {};
   if (!state.aiPlan) state.aiPlan = { depth:"standard", research:false };
   if (!state.block){
     const ids = new Set(state.days.map(d => d.id)), first = state.sessions.find(s => ids.has(s.dayId));
@@ -646,7 +659,7 @@ function showToast(msg){ toast = msg; clearTimeout(toastT); toastT = setTimeout(
 function lastPerf(exId){
   for (let i = state.sessions.length - 1; i >= 0; i--){
     const it = state.sessions[i].items.find(x => x.ex === exId);
-    if (it && it.sets.some(s => s.done && s.tag !== "W")) return { sets: it.sets.filter(s => s.done), work: it.sets.filter(s => s.done && s.tag !== "W"), at: state.sessions[i].end };
+    if (it && it.sets.some(s => s.done && s.tag !== "W")) return { sets: it.sets.filter(s => s.done), work: it.sets.filter(s => s.done && s.tag !== "W"), at: state.sessions[i].end, first: it.first || null };
   }
   return null;
 }
@@ -1536,8 +1549,9 @@ function sessionView(){
         <div class="iconbtns"><button id="swap-${xi}" data-act="swap" data-x="${xi}" aria-label="Swap exercise">⇄ Swap</button><button id="up-${xi}" data-act="sxUp" data-x="${xi}" aria-label="Move up" ${xi===0?"disabled":""}>↑</button><button id="rm-${xi}" data-act="sxRm" data-x="${xi}" aria-label="Remove exercise">${confirmKey==="sxrm"+xi?"Remove?":"✕"}</button></div></div>
       ${note ? `<div class="notepre">📝 ${esc(note)}</div>` : ""}
       ${it.coachNote ? `<div class="notepre">🤖 ${esc(it.coachNote)}</div>` : ""}
-      ${last ? `<div class="prev num">Last time (${agoTxt(last.at)}): ${last.sets.map(s=>fmtSet(s, ex.t)).join(", ")}</div>` : `<div class="prev">First time logging this one.</div>`}
+      ${last ? `<div class="prev num">Last time (${agoTxt(last.at)}): ${last.sets.map(s=>fmtSet(s, ex.t)).join(", ")}${last.first ? ` · started ${SIDE[last.first].toLowerCase()}` : ""}</div>` : `<div class="prev">First time logging this one.</div>`}
       ${it.target ? targetLine(it, ex) : hint ? `<span class="hintup">${hint}</span>` : ""}
+      ${sideRow(it, ex, xi)}
       ${warmupHelp(it, ex, xi)}
       <div class="setlbl"><span>Set</span><span>${isT?"+Weight":"Weight"}</span><span>${isT?"Time":"Reps"}</span><span></span></div>
       <div class="sets">${rows}</div>
@@ -1548,6 +1562,7 @@ function sessionView(){
         <p class="tip">⏱ ${REST_TIP[klass(ex)]}</p>
         <label class="lbl2" for="note-${xi}">My notes for ${esc(ex.n)} (saved for next time)</label>
         <textarea id="note-${xi}" data-note="${esc(it.ex)}" placeholder="Seat height, grip, cues…" maxlength="300">${esc(note)}</textarea>
+        <button class="small" data-act="uniToggle" data-x="${xi}" id="uni-${xi}">${isUni(ex) ? "↔ One side at a time: on" : "↔ Doing it one side at a time?"}</button>
         ${xi < a.items.length-1 ? `<button class="small" data-act="sxSS" data-x="${xi}" id="ss-${xi}">${it.ss?"🔗 Unlink superset":`🔗 Superset with ${esc(exById(a.items[xi+1].ex).n)}`}</button>` : ""}
         <p class="hint" style="font-size:12.5px">Tap a set number to tag it: W warm-up (not counted), D drop set, F to failure.</p>
       </details>
@@ -1737,7 +1752,7 @@ function historyView(){
   if (!state.sessions.length) return `<div class="panel"><h2>No workouts yet</h2><p class="hint">Finished workouts show up here with every set you did.</p>${aiKey ? `<button data-act="plOpen" id="plOpenH">📷 Log a workout from a photo</button>` : ""}</div>`;
   const list = [...state.sessions].map((s,i)=>[s,i]).reverse().map(([s,i]) => `<div class="sess"><div class="sh"><b>${esc(s.dayName)}</b><span class="sm">${fmtDate(s.end)}</span></div>
     <span class="sm num">${fmtTime((s.end-s.start)/1000)} · ${plural(setsOf(s),"set")} · ${volumeOf(s).toLocaleString()} ${U()}${s.prs&&s.prs.length?` · 🏆 ${plural(s.prs.length,"PR")}`:""}${s.ready && s.ready.level !== "normal" ? ` · felt ${READY_WORD[s.ready.level] || s.ready.level}` : ""}${s.from === "photo" ? " · 📷 from a photo" : ""}</span>
-    <details><summary>Details</summary>${s.items.filter(it=>it.sets.some(x=>x.done)).map(it=>{ const ex = exById(it.ex); return `<div class="ex num"><b>${esc(ex.n)}:</b> ${it.sets.filter(x=>x.done).map(x=>fmtSet(x, ex.t)).join(", ")}</div>`; }).join("") || `<div class="ex hint">No completed sets.</div>`}
+    <details><summary>Details</summary>${s.items.filter(it=>it.sets.some(x=>x.done)).map(it=>{ const ex = exById(it.ex); return `<div class="ex num"><b>${esc(ex.n)}:</b> ${it.sets.filter(x=>x.done).map(x=>fmtSet(x, ex.t)).join(", ")}${it.first ? ` · started ${SIDE[it.first].toLowerCase()}` : ""}</div>`; }).join("") || `<div class="ex hint">No completed sets.</div>`}
       <button class="small danger" style="margin-top:6px" data-act="delSess" data-i="${i}" id="dels-${i}">${confirmKey==="dels"+i?"Tap again to delete":"Delete this workout"}</button></details></div>`).join("");
   return `<div class="panel"><div class="row"><h2 class="grow">History</h2><span class="hint num">${plural(state.sessions.length,"workout")}</span></div>${aiKey ? `<button class="small" data-act="plOpen" id="plOpenH">📷 Log a past workout from a photo</button>` : ""}${list}</div>`;
 }
@@ -2430,7 +2445,7 @@ function programText(){
 }
 function sessText(s){
   return `${enDate(s.end)} · ${s.dayName} · ${Math.round((s.end - s.start) / 60000)} min${s.ready && s.ready.level !== "normal" ? ` · felt ${READY_WORD[s.ready.level] || s.ready.level}` : ""}\n`
-    + s.items.filter(it => it.sets.some(x => x.done)).map(it => { const ex = exById(it.ex); return `  ${ex.n}: ${it.sets.filter(x => x.done).map(x => fmtSet(x, ex.t)).join(", ")}`; }).join("\n");
+    + s.items.filter(it => it.sets.some(x => x.done)).map(it => { const ex = exById(it.ex); return `  ${ex.n}: ${it.sets.filter(x => x.done).map(x => fmtSet(x, ex.t)).join(", ")}${it.first ? ` (started ${SIDE[it.first].toLowerCase()} side)` : ""}`; }).join("\n");
 }
 function historyText(n){
   const S = state.sessions.slice(-n).reverse();
@@ -3056,10 +3071,14 @@ document.addEventListener("click", e => {
     case "phAnalyze": { const ph = photos().find(q => q.id === b.dataset.id); if (ph){ delete ph.err; analyzePhoto(ph); } break; }
     case "cmpPose": cmp.pose = b.dataset.v; cmp.a = cmp.b = null; render(); break;
     case "startEmpty": startSession(null); break;
+    case "side": { const it = state.active.items[x]; it.first = b.dataset.v; save(); render(); break; }
+    case "uniToggle": { const it = state.active.items[x], ex = exById(it.ex), on = !isUni(ex); if (on === UNI_RE.test(ex.n)) delete state.uni[ex.id]; else state.uni[ex.id] = on; if (!on) delete it.first;
+      save(); render(); showToast(on ? `${ex.n}: tracking which side you start with.` : `${ex.n}: both sides together.`); break; }
     case "done": {
       const it = state.active.items[x], s = it.sets[+b.dataset.s];
       if (s.done){ s.done = false; s.pr = false; s.rest = null; save(); render(); break; }
       const ex = exById(it.ex);
+      if (isUni(ex) && !it.first){ const lf = lastFirst(it.ex); if (lf) it.first = lf.side === "L" ? "R" : "L"; }
       if (ex.t === "time" ? !parseTime(s.r) : !num(s.r)){ showToast(ex.t==="time" ? "Enter the time first, like 0:45." : "Enter your reps first."); render(); break; }
       s.done = true; s.ts = Date.now();
       if (state.active.lastDone) s.rest = Math.round((s.ts - state.active.lastDone)/1000);
