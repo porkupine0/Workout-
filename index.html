@@ -578,10 +578,12 @@ const SPLIT_T = {
     5:{ name:"Bro split ×5", days:[["Chest","Chest:hpush:h,Chest:hpush:c,Chest:fly:i,Chest:fly:i"],["Back","Back:vpull:c,Back:hpull:h,Back:hpull:c,Back:vpull:i"],["Legs","Quads:squat:h,Hamstrings:hinge:c,Quads:legext:i,Hamstrings:legcurl:i,Calves:calf:i"],
       ["Shoulders","Shoulders:vpush:h,Shoulders:lat:i,Shoulders:rear:i,Shoulders:lat:i,Core:crunch:i"],["Arms","Biceps:curl:i,Triceps:over:i,Biceps:hammer:i,Triceps:tri:i,Biceps:curl:i"]] } } };
 // The angles each muscle should be trained from once it has enough exercises in the week, most important first
-const COVER = { Chest:["hpush","fly"], Back:["vpull","hpull"], Shoulders:["lat","vpush","rear"], Triceps:["over","tri"], Biceps:["curl"], Quads:["squat","legext","lunge"], Hamstrings:["hinge","legcurl"], Glutes:["thrust","abduct"], Calves:["calf"], Core:["crunch","anti","legraise"] };
+const COVER = { Chest:["hpush","fly"], Back:["vpull","hpull"], Shoulders:["lat","vpush","rear"], Triceps:["over","tri"], Biceps:["armback","armfront"], Quads:["squat","legext","lunge"], Hamstrings:["hinge","legcurl"], Glutes:["thrust","abduct"], Calves:["calf"], Core:["crunch","anti","legraise"] };
 // how many of those angles are required for a given number of exercises in the week (index = exercises, last value repeats)
-const COVER_N = { Chest:[0,0,2], Back:[0,0,2], Shoulders:[0,0,2,3], Triceps:[0,0,2], Quads:[0,0,1,2], Hamstrings:[0,0,2], Glutes:[0,0,1,1,2], Core:[0,0,2] };
+const COVER_N = { Biceps:[0,0,2], Chest:[0,0,2], Back:[0,0,2], Shoulders:[0,0,2,3], Triceps:[0,0,2], Quads:[0,0,1,2], Hamstrings:[0,0,2], Glutes:[0,0,1,1,2], Core:[0,0,2] };
 const COVER_WHY = {
+  armback:"Curling with your elbows behind you (incline, Bayesian) trains the biceps stretched and grew the biceps itself more in a 2026 study (Kobayashi).",
+  armfront:"Curling with your elbows in front of you (preacher, spider) grew the lower arm near the elbow and the brachialis more (Kassiano 2025; Kobayashi 2026).",
   fly:"A fly loads the chest through a long stretch that presses don't.",
   vpull:"A vertical pull works the lats from a different angle than rows.",
   hpull:"A row hits the mid-back that pulldowns miss.",
@@ -1919,8 +1921,11 @@ function swapView(){
 // ---------- the next block ----------
 const hash = s => { let h = 2166136261; for (let i = 0; i < s.length; i++){ h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; };
 const KRANK = { heavy:0, comp:1, iso:2, time:3 };
-const ISO_ANGLES = new Set(["fly","lat","rear","front","legext","legcurl","abduct","gkick","over","tri","curl","hammer","calf","shrug","pullover","crunch","legraise","anti","rotate"]);
-function angleOf(ex){ const p = patternOf(ex); if (ex.m === "Triceps") return /Overhead|Katana/.test(ex.n) ? "over" : p === "tri" ? "tri" : "press"; return p; }
+const ISO_ANGLES = new Set(["armfront","armback","fly","lat","rear","front","legext","legcurl","abduct","gkick","over","tri","curl","hammer","calf","shrug","pullover","crunch","legraise","anti","rotate"]);
+// Curls by where your elbows are: behind you (incline, Bayesian) trains the biceps stretched; in front (preacher, spider)
+// shifts growth toward the lower biceps and the brachialis (Kassiano 2025; Kobayashi 2026)
+const ARM_FRONT = /Preacher|Spider|Concentration|Machine Curl|High Cable Curl|Scott/, ARM_BACK = /Incline (Dumbbell |Hammer )?Curl|Bayesian|Lying Cable Curl|Behind-the-Back/;
+function angleOf(ex){ const p = patternOf(ex); if (ex.m === "Biceps" && (p === "curl" || p === "hammer")) return ARM_FRONT.test(ex.n) ? "armfront" : ARM_BACK.test(ex.n) ? "armback" : p; if (ex.m === "Triceps") return /Overhead|Katana/.test(ex.n) ? "over" : p === "tri" ? "tri" : "press"; return p; }
 const stable = ex => ["MA","CA","SM"].includes(ex.e) || /Chest-Supported|Seated|Preacher|Machine/.test(ex.n);
 const restFor = ex => { const k = klass(ex); return state.goals.goal === "strength" && k === "heavy" ? 180 : DEFAULTS[k].rest; };
 function usedIn(days){ const s = new Set(); (days || []).forEach(d => d.items.forEach(it => s.add(it.ex))); return s; }
@@ -2609,6 +2614,7 @@ const RESEARCH_BRIEF = `Research the plan should follow (use your own knowledge 
 - Rest: more than 60 s between sets grows a little more than less; past about 90 s adds little for isolation; big compounds need 2–3 min to keep reps up (Singer 2024).
 - Exercise selection: train each muscle from its key angles and favor exercises that load it hard at long muscle lengths (overhead triceps extensions, seated leg curls, incline curls, deep stretch flys and presses) (Maeo 2021, 2023; Kassiano 2023). Stable machines and cables let you push close to failure safely.
 - Rotation: change exercises with a purpose. Keep lifts that are still progressing; give stalled ones a new variation for the same muscle. Changing everything every block isn't better (Kassiano 2022).
+- Arms: with 2+ biceps exercises a week, use both elbow positions: one with the elbows behind the body (incline or Bayesian curl), which grew the biceps itself more, and one with the elbows in front (preacher, spider), which grew the lower arm and brachialis more (Kassiano 2025; Kobayashi 2026; one cable study found no difference, Pedrosa 2025). For triceps, include an overhead extension, which grew all three heads more than pushdowns (Maeo 2023), plus a pushdown or other extension; cross-body extensions are a fine variety pick but not required.
 - Order: exercises done early in a session progress best, so priority muscles and main lifts go first (Nunes 2021).
 - Supersets: pairing exercises for muscles that don't overlap (chest with back, biceps with triceps, upper with lower) saves time with little loss in reps or growth. Pairing muscles that overlap (rows then curls, face pulls then lateral raises, presses then pushdowns) cuts the second exercise's reps and makes its progress hard to read. Don't superset a day's heaviest main lift, except with something unrelated and easy like calves or core.
 - Rep ranges: anything from about 5 to 30 reps builds muscle when sets are hard; strength favors heavier main lifts (3–6). Use the rep ranges given for this phase.`;
@@ -2730,6 +2736,9 @@ function checkPlan(plan){
     else if (sets > hi) hard.push(`${m}: ${sets} hard sets a week is more than it needs. Aim for about ${M.target}, no more than ${hi}.`);
     if (g.split !== "bro" && review.days >= 2 && sets >= 8 && days < 2) hard.push(`${m}: all ${sets} sets are on one day. Spread them over at least 2 days.`);
   });
+  const angles = m => plan.days.flatMap(d => d.items.map(it => exById(it.ex)).filter(x => x.m === m).map(angleOf));
+  const bi = angles("Biceps"); if (bi.length >= 2 && !(bi.includes("armback") && bi.includes("armfront"))) soft.push(`Biceps: ${bi.includes("armfront") ? "no curl with the elbows behind you (incline or Bayesian)" : bi.includes("armback") ? "no curl with the elbows in front (preacher or spider)" : "no curl with the elbows behind you or in front"}. Using both positions grows more of the arm.`);
+  const tri = angles("Triceps"); if (tri.length >= 2 && !tri.includes("over")) soft.push("Triceps: no overhead extension, which grew the triceps most in research.");
   P.A.ex.filter(r => r.n >= 2 && LIFT_MUSCLES.includes(r.m) && (r.stuck || r.trend === "down" || r.trend === "flat")).forEach(r => {
     if (plan.days.some(d => d.items.some(it => it.ex === r.id))) soft.push(`${exById(r.id).n} stalled last block and is back in the plan.`); });
   return { hard, soft };
