@@ -499,6 +499,12 @@ function labelOf(x){
 }
 const isUni = ex => state.uni[ex.id] != null ? state.uni[ex.id] : labelOf(ex).uni;
 const SIDE = { L:"Left", R:"Right" };
+// Starting resistance: what a machine adds before any plates (a leg press sled, a hack squat carriage, a Smith bar). You log
+// plates as usual; the app adds this whenever it does math with the load (jumps, back-offs, estimated 1RM, records).
+const baseOf = ex => (ex && state.base && +state.base[ex.id]) || 0;
+const effW = (ex, w) => { const v = num(w) || 0, b = baseOf(ex); return v || b ? v + b : 0; };
+const BASE_LIKELY = /Hack|Leg Press|Pendulum|Belt Squat|V-Squat|Hammer|Plate|Iso-Lateral|T-Bar|Machine Hip Thrust|Incline Machine|Machine (Chest|Shoulder) Press|Landmine/;
+const baseLikely = ex => ex.e === "SM" || ex.e === "PL" || BASE_LIKELY.test(ex.n);
 // the side you led with the last time you did this exercise
 function lastFirst(exId){ for (let i = state.sessions.length - 1; i >= 0; i--){ const it = state.sessions[i].items.find(q => q.ex === exId && q.first); if (it) return { side:it.first, at:state.sessions[i].end }; } return null; }
 function sideRow(it, ex, xi){
@@ -643,6 +649,7 @@ function migrate(){
     if (!Array.isArray(g.noGear)) g.noGear = []; if (!g.week || typeof g.week !== "object") g.week = null; }
   if (!state.rate) state.rate = {};
   if (!state.uni) state.uni = {};
+  if (!state.base) state.base = {};
   if (!state.aiPlan) state.aiPlan = { depth:"standard", research:false };
   if (!state.block){
     const ids = new Set(state.days.map(d => d.id)), first = state.sessions.find(s => ids.has(s.dayId));
@@ -694,7 +701,7 @@ const isAssisted = ex => /assisted/i.test(ex.n);
 const workSets = sets => sets.filter(q => q.done && q.tag !== "W");
 function dayScore(ex, ws){
   if (ex.t === "time") return 0;
-  if (loaded(ex) && !isAssisted(ex) && ws.some(q => num(q.w) > 0)) return ws.reduce((a, q) => a + (num(q.w) || 0) * (num(q.r) || 0), 0);
+  if (loaded(ex) && !isAssisted(ex) && ws.some(q => num(q.w) > 0)) return ws.reduce((a, q) => a + effW(ex, q.w) * (num(q.r) || 0), 0);
   return ws.reduce((a, q) => a + (num(q.r) || 0), 0);
 }
 function dayLabel(ex, ws){ const v = Math.round(dayScore(ex, ws)); return loaded(ex) && !isAssisted(ex) && ws.some(q => num(q.w) > 0) ? `Best day: ${v.toLocaleString()} ${U()}` : `Best day: ${v} reps`; }
@@ -718,7 +725,7 @@ function setPRs(ex, s, prior){
   }
   if (w > Math.max(...P.map(q => q.w))) out.push(`Weight PR: ${loaded(ex) ? "" : "+"}${fmtW(w)}`);
   else if (at && r > Math.max(...P.filter(q => q.w >= w).map(q => q.r))) out.push(`Rep PR: ${w ? `${+w.toFixed(1)}×${r}` : `${r} reps`}`);
-  if (w && loaded(ex)){ const v = e1rm(w, r), b = Math.max(0, ...P.map(q => e1rm(q.w, q.r) || 0)); if (v && b && v > b) out.push(`1RM PR: ${Math.round(v)} ${U()}`); }
+  if (w && loaded(ex)){ const bs = baseOf(ex), v = e1rm(w + bs, r), b = Math.max(0, ...P.map(q => e1rm(q.w + bs, q.r) || 0)); if (v && b && v > b) out.push(`1RM PR: ${Math.round(v)} ${U()}`); }
   return out;
 }
 const setPR = (ex, s, prior) => setPRs(ex, s, prior)[0] || null;
@@ -820,8 +827,8 @@ function perfScore(work, ex){
   if (ex.t === "time") return Math.max(0, ...work.map(s => parseTime(s.r) || 0));
   if (isAssisted(ex)){ const bw = bwNow(); return Math.max(0, ...work.filter(s => s.tag !== "D").map(s => { const r = Math.min(num(s.r) || 0, 20); return r ? Math.max(1, bw - (num(s.w) || 0)) * (1 + r/30) : 0; })); }
   const use = work.some(s => s.tag !== "D") ? work.filter(s => s.tag !== "D") : work;
-  if (!use.some(s => num(s.w))) return Math.max(0, ...use.map(s => num(s.r) || 0));
-  return Math.max(0, ...use.map(s => { const w = num(s.w), r = Math.min(num(s.r) || 0, 20); return w && r ? w * (1 + r/30) : 0; }));
+  if (!use.some(s => num(s.w)) && !baseOf(ex)) return Math.max(0, ...use.map(s => num(s.r) || 0));
+  return Math.max(0, ...use.map(s => { const w = effW(ex, s.w), r = Math.min(num(s.r) || 0, 20); return w && r ? w * (1 + r/30) : 0; }));
 }
 function bestSet(work, ex){ let b = null, bs = -1; work.forEach(s => { const v = perfScore([s], ex); if (v > bs){ bs = v; b = s; } }); return b ? fmtSet({ w:b.w, r:b.r }, ex.t) : ""; }
 const trendOf = c => c == null ? "new" : c >= .05 ? "up" : c >= .015 ? "steady" : c > -.02 ? "flat" : "down";
@@ -830,7 +837,7 @@ const trendOf = c => c == null ? "new" : c >= .05 ? "up" : c >= .015 ? "steady" 
 // top set with more good sets behind it counts as progress, so it doesn't read as a stall.
 let expoCache = { key:"", m:new Map() };
 function exposures(exId){
-  const ss = state.sessions, key = `${ss.length}:${ss.length ? ss[ss.length-1].end : 0}:${JSON.stringify(state.uni || {}).length}:${(state.goals.noGear || []).length}`;
+  const ss = state.sessions, key = `${ss.length}:${ss.length ? ss[ss.length-1].end : 0}:${JSON.stringify(state.uni || {})}:${JSON.stringify(state.base || {})}:${(state.goals.noGear || []).length}`;
   if (expoCache.key !== key) expoCache = { key, m:new Map() };
   if (!expoCache.m.has(exId)) expoCache.m.set(exId, exposuresRaw(exId));
   return expoCache.m.get(exId);
@@ -939,16 +946,17 @@ function targetFor(tpl, ctx){
     return fill("", topR.map(r => Math.min(hi, r + 1)), "same", `Beat ${ago} by a rep on each set.`);
   }
   const st = stepFor(ex, W), gr = granFor(ex);
-  const rtf = Math.max(...top.map(s => (num(s.r) || 0) + (s.rir != null ? Math.max(0, Math.min(s.rir + B, 6)) : 1))), e1 = W * (1 + rtf/30);
-  const repsAt = w => Math.floor(30 * (e1 / w - 1)) - rir[1];   // reps at weight w, leaving this week's reserve
-  if (ctx.intro){ const w = roundTo(W * .9, gr); return fill(w, Math.max(lo, Math.min(hi, repsAt(w))), "deload", `Learning week: about 90% of ${ago} (${fmtW(W)}). Stop 3–4 reps short of failure.`); }
-  if (away >= 6){ const w = roundTo(W * .9, gr); return fill(w, lo, "down", `It's been ${away} weeks since you did this. Start around 90% of last time and build back up.`); }
+  const bs = baseOf(ex), pct90 = () => Math.max(0, roundTo((W + bs) * .9 - bs, gr));   // about 90% of the total load, in plates
+  const rtf = Math.max(...top.map(s => (num(s.r) || 0) + (s.rir != null ? Math.max(0, Math.min(s.rir + B, 6)) : 1))), e1 = (W + bs) * (1 + rtf/30);
+  const repsAt = w => Math.floor(30 * (e1 / (w + bs) - 1)) - rir[1];   // reps at plates w (plus the machine's starting resistance), leaving this week's reserve
+  if (ctx.intro){ const w = pct90(); return fill(w, Math.max(lo, Math.min(hi, repsAt(w))), "deload", `Learning week: about 90% of ${ago} (${fmtW(W)}). Stop 3–4 reps short of failure.`); }
+  if (away >= 6){ const w = pct90(); return fill(w, lo, "down", `It's been ${away} weeks since you did this. Start around 90% of last time and build back up.`); }
   if (topR.every(r => r >= hi) && (ctx.ready === "rough" || ctx.ready === "off"))
     return ctx.ready === "rough" ? fill(W, topR, "same", `Rough day: hold at ${fmtW(W)} and match ${ago}. The jump can wait for a better day.`)
       : fill(W, topR.map(r => r + 1), "same", `You've earned a jump, but not on an off day. Stay at ${fmtW(W)} and add a rep.`);
   // great day: within a rep of the top of the range is close enough to take the next weight
   if (ctx.ready === "great" && !topR.every(r => r >= hi) && topR.every(r => r >= hi - 1)){
-    const w = roundTo(W + st, gr), r = Math.min(hi, Math.floor(30 * (e1 / w - 1)) - rir[0]);   // feeling great: the harder end of this week's effort
+    const w = roundTo(W + st, gr), r = Math.min(hi, Math.floor(30 * (e1 / (w + bs) - 1)) - rir[0]);   // feeling great: the harder end of this week's effort
     if (w > W && r >= lo) return fill(w, r, "up", `Great day: you were within a rep of ${hi} ${ago}, so take the jump to ${fmtW(w)} and aim for ${r}. If the first set moves slowly, drop back to ${fmtW(W)}.`);
   }
   if (topR.every(r => r >= hi)){
@@ -974,7 +982,7 @@ function targetFor(tpl, ctx){
     if (short && !tried("rest")){ const ar = avg(rests.map(h => h.rest)), tg = rests[rests.length-1].restT; return flagged(fill(W, topR, "same", `${N}, and you've been resting about ${fmtTime(ar)} between sets instead of ${fmtTime(tg)}. Short rests cost reps. Same weight: rest the full ${fmtTime(tg)} today before backing off.`), "rest"); }
     const late = L3.filter(h => h.of >= 4 && h.pos >= Math.ceil(h.of / 2)).length >= 2;
     if (late && !tried("late")){ const h = L3[L3.length-1]; return flagged(fill(W, topR, "same", `${N}, and it's been exercise ${h.pos + 1} of ${h.of}, when you're already tired. Before backing off, do it earlier: move it up on the Program tab, or do it first today.`), "late"); }
-    const w = roundTo(W * .9, gr);
+    const w = pct90();
     return flagged(fill(w, Math.min(hi, Math.max(lo, repsAt(w))), "down", `${N}: no heavier set, no extra reps, no more total work${rr != null && rr <= 1 ? `, and you've been close to failure` : ""}. That's fatigue. Take about 10% off, beat your reps, and build back up.`), "reset");
   }
   if (slipping) return fill(W, topR, "same", `Down two sessions in a row, so fatigue may be building. Same weight: just match ${ago}.`);
@@ -1646,6 +1654,7 @@ function sessionView(){
       ${last ? `<div class="prev num">Last time (${agoTxt(last.at)}): ${last.sets.map(s=>fmtSet(s, ex.t)).join(", ")}${last.first ? ` · started ${SIDE[last.first].toLowerCase()}` : ""}</div>` : `<div class="prev">First time logging this one.</div>`}
       ${it.target ? targetLine(it, ex) : hint ? `<span class="hintup">${hint}</span>` : ""}
       ${sideRow(it, ex, xi)}
+      ${baseLikely(ex) && loaded(ex) && !(ex.id in state.base) ? `<p class="hint" style="font-size:12.5px">⚙️ This machine may add starting resistance (look for a sticker). Enter it once under Form tip, notes &amp; options, or put 0 if there isn't one.</p>` : ""}
       ${warmupHelp(it, ex, xi)}
       <div class="setlbl"><span>Set</span><span>${isT?"+Weight":"Weight"}</span><span>${isT?"Time":"Reps"}</span><span></span></div>
       <div class="sets">${rows}</div>
@@ -1657,6 +1666,9 @@ function sessionView(){
         <p class="tip">⏱ ${REST_TIP[klass(ex)]}</p>
         <label class="lbl2" for="note-${xi}">My notes for ${esc(ex.n)} (saved for next time)</label>
         <textarea id="note-${xi}" data-note="${esc(it.ex)}" placeholder="Seat height, grip, cues…" maxlength="300">${esc(note)}</textarea>
+        ${loaded(ex) && ex.t !== "time" && !isAssisted(ex) ? `<label class="hint" for="base-${xi}" style="font-weight:700">Starting resistance (${U()})</label>
+        <input type="text" inputmode="decimal" id="base-${xi}" data-base="${esc(it.ex)}" value="${baseOf(ex) || ""}" placeholder="${baseLikely(ex) ? "Check the machine's sticker, e.g. 75" : "0 for most exercises"}" autocomplete="off" style="max-width:220px">
+        <span class="hint" style="font-size:12.5px">What the machine adds before any plates. Keep logging plates only; the app adds this for jumps, back-offs and estimated 1RM.</span>` : ""}
         <button class="small" data-act="uniToggle" data-x="${xi}" id="uni-${xi}">${isUni(ex) ? "↔ One side at a time: on" : "↔ Doing it one side at a time?"}</button>
         ${xi < a.items.length-1 ? `<button class="small" data-act="sxSS" data-x="${xi}" id="ss-${xi}">${it.ss?"🔗 Unlink superset":`🔗 Superset with ${esc(exById(a.items[xi+1].ex).n)}`}</button>` : ""}
         <p class="hint" style="font-size:12.5px">Tap a set number to tag it: W warm-up (not counted), D drop set, F to failure.</p>
@@ -1902,7 +1914,7 @@ function progressView(){
   const recs = recIds.map(id => { const ex = exById(id), h = prHistory(id), P = h.sets.map(q => ({ w:num(q.w) || 0, r:num(q.r) || 0, t:parseTime(q.r) || 0 }));
     if (ex.t === "time") return { id, ex, hold:Math.max(0, ...P.map(q => q.t)) };
     const as = isAssisted(ex), ws = P.map(q => q.w), top = as ? Math.min(...ws) : Math.max(...ws);
-    const e1 = loaded(ex) && !as ? Math.max(0, ...P.map(q => e1rm(q.w, q.r) || 0)) : 0;
+    const e1 = loaded(ex) && !as ? Math.max(0, ...P.map(q => e1rm(q.w + baseOf(ex), q.r) || 0)) : 0;
     const days = S.map(s => s.items.filter(it => it.ex === id).map(it => workSets(it.sets)).find(x => x.length)).filter(Boolean);
     const bestDay = days.reduce((b, d) => dayScore(ex, d) > (b ? dayScore(ex, b) : -1) ? d : b, null);
     return { id, ex, as, top, topR:Math.max(0, ...P.filter(q => q.w === top).map(q => q.r)), e1, day:bestDay ? dayLabel(ex, bestDay).replace("Best day: ", "") : "–" };
@@ -2825,6 +2837,7 @@ function feelText(A){
   return L.length ? `How exercises feel to them (their own ratings and notes; weigh these heavily when picking exercises):\n${L.join("\n")}` : "";
 }
 function weekText(){ const w = myWeek(); return `Their usual week: ${WK_DAYS.map((d, i) => `${d} ${w[i]}`).join(", ")}${state.goals.week ? "" : " (guessed from the last 6 weeks)"}. "sport" is racquetball or another sport, hard on legs and shoulders.`; }
+function baseText(){ const L = Object.entries(state.base || {}).filter(([, v]) => v > 0); return L.length ? `Logged weights are plates only on these machines, which add starting resistance: ${L.map(([id, v]) => `${exById(id).n} +${v} ${U()}`).join(", ")}.` : ""; }
 function gearText(){ const n = state.goals.noGear || []; return n.length ? `Not at their gym: ${n.map(k => (GEAR.find(q => q[0] === k) || [k, k])[1]).join(", ")}. Don't pick exercises that need these.` : ""; }
 function horizonText(){
   const g = state.goals, r = state.roadmap, out = [];
@@ -2840,7 +2853,7 @@ function blockContent(){
   const mins = A.S.length ? Math.round(avg(A.S.map(x => (x.end - x.start) / 60000))) : 0;
   const draft = P.days.map((d, di) => `${d.name}: ${d.items.map((x, xi) => { const e = exById(pickFor(di, xi).id); return `${e.n} ${x.sets}×${x.lo}–${x.hi}${e.t === "time" ? "s" : ""}${x.ss ? " (superset with next)" : ""}`; }).join(", ")}`).join("\n");
   const keepNames = review.days === state.days.length && g.split === "keep";
-  return [nowText(), goalsText(), bodyText(), interviewText(), gearText(), weekText(), horizonText(), RESEARCH_BRIEF,
+  return [nowText(), goalsText(), bodyText(), interviewText(), gearText(), baseText(), weekText(), horizonText(), RESEARCH_BRIEF,
     `Block ${b.n} is ending: ${plural(A.weeks, "week")} trained, ${plural(A.S.length, "workout")}, ${Math.round(A.adherence * 100)}% of planned workouts made${A.rir != null ? `, sets averaged ${A.rir.toFixed(1)} reps in reserve` : ""}${mins ? `, workouts averaged ${mins} minutes` : ""}. ${readyText(A)}`,
     `How each lift did this block:\n${liftsText(A)}`, feelText(A),
     `Hard sets per muscle this block (helper sets count half): ${mus || "not enough data"}.`,
@@ -3455,6 +3468,7 @@ document.addEventListener("input", e => {
   if (t.dataset.note != null){ const v = t.value.trim(); if (v) state.notes[t.dataset.note] = t.value; else delete state.notes[t.dataset.note]; save(); }
   if (t.dataset.dname != null){ state.days[+t.dataset.dname].name = t.value; save(); }
   if (t.id === "aiAskIn" && review && review.ai) review.ai.ask = t.value;
+  if (t.dataset.base){ const v = parseFloat(t.value.replace(",", ".")); if (t.value.trim() === "") delete state.base[t.dataset.base]; else if (!isNaN(v) && v >= 0 && v < 1000) state.base[t.dataset.base] = v; save(); }
   if (t.dataset.gtext){ state.goals[t.dataset.gtext] = t.value.slice(0, 600); save(); }
   if (t.dataset.gnum){ const v = parseInt(t.value.replace(/\D/g, ""), 10); state.goals[t.dataset.gnum] = isNaN(v) ? null : Math.min(99, v); save(); }
   if (t.id === "restoreBox") restoreText = t.value;
