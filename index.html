@@ -1685,6 +1685,7 @@ function sessionView(){
     ${items || `<p class="hint">No exercises yet. Add some below.</p>`}
     <button data-act="pick" data-target="session" id="addExSess">+ Add exercise</button>
     ${aiKey ? `<button data-act="coSess" id="coSess">🤖 Ask the coach</button>` : ""}
+    ${checkPanel()}
     <button class="primary" data-act="finish" id="finish">Finish workout</button>
     <button class="ghost small danger" data-act="discard" id="discard">${confirmKey==="discard"?"Tap again to discard this workout":"Discard workout"}</button>
     <p class="hint">Tap ✓ after each set and the rest timer starts on its own. Everything saves as you go, so it's safe to close the app mid-workout.</p>`;
@@ -3207,6 +3208,46 @@ function startSession(day, rd){
   if (day) pickCalibration(state.active, ctx, rd);
   state.tab = "train"; review = null; save(); render(); window.scrollTo(0,0); keepAwake();
 }
+// ---------- Typo check before finishing ----------
+// Looks for switched weight and reps, an extra or missing digit, reps far outside your usual, or a done set with no reps.
+// "Usual" is your last 3 workouts on the exercise, or the other sets from today when there's no history.
+let fcheck = null;
+const median = a => { const b = a.filter(v => v > 0).sort((x, y) => x - y); return b.length ? b[Math.floor((b.length - 1) / 2)] : 0; };
+function finishIssues(a){
+  const out = [];
+  a.items.forEach((it, xi) => {
+    const ex = exById(it.ex), isT = ex.t === "time", D = it.sets.map((q, si) => ({ q, si })).filter(({ q }) => q.done && q.tag !== "W");
+    if (!D.length) return;
+    const H = exposures(it.ex).slice(-3).flatMap(h => h.work.filter(q => q.tag !== "D")), hasH = H.length > 0;
+    D.forEach(({ q, si }) => {
+      const tag = `${ex.n}, set ${si + 1}`, where = { x:xi, s:si }, add = t => out.push({ ...where, t:`${tag}: ${t}` });
+      // compare with history; with none, with today's other sets, but only when there are at least 2 to agree on "usual"
+      const others = hasH ? H : D.map(d => d.q).filter(o => o !== q && o.tag !== "D"), enough = hasH || others.length >= 2;
+      const W0 = enough ? median(others.map(o => num(o.w) || 0)) : 0, R0 = enough ? median(others.map(o => isT ? parseTime(o.r) || 0 : num(o.r) || 0)) : 0;
+      const w = num(q.w) || 0, r = isT ? parseTime(q.r) || 0 : num(q.r) || 0, uw = `${+W0.toFixed(1)}`;
+      if (!r) return add(`checked off with no ${isT ? "time" : "reps"} logged.`);
+      if (isT){ if (R0 && r >= R0 * 3 && r - R0 >= 30) add(`${fmtTime(r)} is far longer than your usual ${fmtTime(R0)}. An extra digit?`); return; }
+      if (W0 && R0 && w && W0 > R0 * 2 && Math.abs(w - R0) <= Math.max(2, R0 * .25) && Math.abs(r - W0) <= Math.max(5, W0 * .15)) return add(`${w} × ${r} looks switched. You usually do about ${uw} × ${R0}.`);
+      if (w && w <= 30 && r >= 40 && loaded(ex) && !(R0 >= 30)) return add(`${w} × ${r}. Did weight and reps get switched?`);
+      if (W0 && w){
+        const k = w / W0;
+        if (k >= 6) return add(`${w.toLocaleString()} ${U()} is about ${Math.round(k)}× your usual ${uw}. An extra digit?`);
+        if (k >= 2.2 && w - W0 >= 30 && q.tag !== "D") return add(`${fmtW(w)} is a lot more than your usual ${uw}. A typo, or a big jump?`);
+        if (k <= .34 && q.tag !== "D" && !isAssisted(ex)) return add(`${fmtW(w)} is a lot less than your usual ${uw}. A missing digit?`);
+      }
+      if (R0 && r >= Math.max(R0 * 2.5, R0 + 8)) add(`${r} reps when you usually do about ${R0}. An extra digit?`);
+      else if (r > 60) add(`${r} reps looks too high. An extra digit?`);
+    });
+  });
+  return out;
+}
+function checkPanel(){
+  if (!fcheck) return "";
+  return `<div class="panel" id="fcheck" role="alert" style="gap:8px;border:2px solid var(--bad)"><b>🔎 Quick check before you finish</b>
+    <span class="hint">${fcheck.length === 1 ? "One set looks off." : `${fcheck.length} sets look off.`} Tap a set to fix it, or finish anyway if it's right.</span>
+    ${fcheck.map((f, i) => `<button class="small ghost" style="text-align:left;justify-content:flex-start;white-space:normal" data-act="fcFix" data-x="${f.x}" data-s="${f.s}" id="fc-${i}">✏️ ${esc(f.t)}</button>`).join("")}
+    <div class="btnrow"><button class="small primary" data-act="fcFinish" id="fcFinish">It's right, finish</button><button class="small ghost" data-act="fcBack" id="fcBack">Back to workout</button></div></div>`;
+}
 function finishSession(){
   const a = state.active;
   a.items = a.items.filter(it => it.sets.some(s => s.done)).map(it => ({ ...it, sets: it.sets.filter(s => s.done) }));
@@ -3304,7 +3345,14 @@ document.addEventListener("click", e => {
     case "restTap": { const it = state.active.items[x]; startTimer(it.rest, exById(it.ex).n); save(); render(); break; }
     case "sxUp": { const a = state.active.items; if (x > 0){ [a[x-1], a[x]] = [a[x], a[x-1]]; save(); render(); } break; }
     case "sxRm": confirmThen("sxrm"+x, ()=>{ state.active.items.splice(x,1); save(); render(); }); break;
-    case "finish": finishSession(); break;
+    case "finish": { const iss = finishIssues(state.active); if (!iss.length){ fcheck = null; finishSession(); break; }
+      fcheck = iss; render(); const el = document.getElementById("fcheck"); if (el) el.scrollIntoView({ block:"center", behavior:"smooth" }); break; }
+    case "fcFinish": fcheck = null; finishSession(); break;
+    case "fcBack": fcheck = null; render(); break;
+    case "fcFix": { const xi = b.dataset.x, si = b.dataset.s, f = fcheck; fcheck = null; render();
+      const it = state.active.items[+xi], q = it && it.sets[+si], bad = f && f.find(z => z.x == xi && z.s == si), wFirst = bad && /switched|weight|digit\?$/.test(bad.t) && !/reps|longer|no (reps|time)/.test(bad.t);
+      const inp = document.getElementById(`${wFirst ? "w" : "r"}-${xi}-${si}`) || document.getElementById(`w-${xi}-${si}`);
+      if (inp){ inp.scrollIntoView({ block:"center" }); inp.focus(); inp.select && inp.select(); } break; }
     case "discard": confirmThen("discard", ()=>{ state.active = null; state.timer = null; save(); render(); }); break;
     case "closeSummary": summary = null; render(); break;
     case "tmrAdd": if (state.timer){ state.timer.end += (+b.dataset.v)*1000; state.timer.total = Math.max(5, state.timer.total + (+b.dataset.v)); save(); render(); } break;
