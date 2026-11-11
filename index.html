@@ -805,14 +805,17 @@ function blockInfo(){
   return { b, S, per, done, week, intro:!!b.intro && week === 1, due:state.days.length > 0 && done >= b.weeks };
 }
 // How hard working sets should be, as reps in reserve: easy in the learning week, hardest in the last week
-function effortFor(week, weeks, intro){ if (intro && week === 1) return [3,4]; if (week >= weeks) return [0,1]; if (week <= (intro ? 3 : 2)) return [2,3]; return [1,2]; }
+// Blocks of 7+ weeks get an easier week in the middle (week 4 of 7, week 5 of 8): no extra sets, same weights,
+// stop 3–4 reps short. The build-up then starts over, so a long block is two shorter build-ups on the same exercises.
+const easyWeekOf = weeks => weeks >= 7 ? Math.floor(weeks / 2) + 1 : 0;
+function effortFor(week, weeks, intro){ if (intro && week === 1) return [3,4]; if (week === easyWeekOf(weeks)) return [3,4]; if (week >= weeks) return [0,1]; if (week <= (intro ? 3 : 2)) return [2,3]; return [1,2]; }
 // ---------- Whole-body fatigue ----------
 // Most lifts sliding at once over 2 weeks, with check-ins worse than the month before (or several rough days), points to
 // overall fatigue rather than any one exercise. A lighter week clears it faster than backing off lifts one at a time.
 const LV_PTS = { great:2, normal:0, off:-2, rough:-4, recovery:-6 };
 const lightOn = () => !!(state.light && Date.now() < state.light.until);
 function fatigueCheck(){
-  const now = Date.now(), win = now - 14*dayMs, S = state.sessions.filter(x => x.end > win && !x.light);
+  const now = Date.now(), win = now - 14*dayMs, S = state.sessions.filter(x => x.end > win && !x.light && !x.easy);
   if (S.length < 3 || lightOn() || (state.light && state.light.start > now - 28*dayMs) || blockInfo().intro) return null;
   const ids = [...new Set(S.flatMap(x => x.items.map(it => it.ex)))].filter(id => { const x = exById(id); return LIFT_MUSCLES.includes(x.m) && x.t !== "time"; });
   let judged = 0; const down = [];
@@ -837,7 +840,7 @@ function pickCalibration(a, ctx, rd){
   const pick = ok[ok.length - 1]; if (!pick) return;
   pick.it.cal = true; pick.it.sets[pick.it.sets.length - 1].tag = "F";
 }
-function sessionCtx(dayId){ const I = blockInfo(); return { dayId, week:I.week, weeks:I.b.weeks, intro:I.intro, rir:effortFor(I.week, I.b.weeks, I.b.intro) }; }
+function sessionCtx(dayId){ const I = blockInfo(); return { dayId, week:I.week, weeks:I.b.weeks, intro:I.intro, easy:!I.intro && I.week === easyWeekOf(I.b.weeks), rir:effortFor(I.week, I.b.weeks, I.b.intro) }; }
 
 // One number per workout for an exercise, to compare sessions: estimated 1RM, best reps (bodyweight) or longest hold
 // for assisted machines the load you move is your bodyweight minus the assistance, so less help scores higher
@@ -871,7 +874,7 @@ function exposuresRaw(exId){
     const pos = s.items.indexOf(it), inSS = it.ss || (pos > 0 && s.items[pos-1].ss), known = work.filter(x => x.rir != null);
     const rs = inSS ? [] : it.sets.filter((x, k) => k > 0 && x.done && x.tag !== "W" && x.rest != null && x.rest > 0).map(x => x.rest);
     out.push({ at:s.end, dayId:s.dayId, work, score, day, improved, pos, of:s.items.length, rest:rs.length ? avg(rs) : null, restT:it.rest || null,
-      back:it.back || null, pain:!!it.pain, rir:known.length ? avg(known.map(x => x.rir)) : null, pre:pos > 0 && s.items[pos-1].ss ? { ex:s.items[pos-1].ex, ov:overlapOf(exById(s.items[pos-1].ex), ex).v } : null, bad:!!((s.ready && BAD_DAY.has(s.ready.level)) || s.light || it.pain), light:!!s.light, flag:(it.target && it.target.flag) || null });
+      back:it.back || null, pain:!!it.pain, rir:known.length ? avg(known.map(x => x.rir)) : null, pre:pos > 0 && s.items[pos-1].ss ? { ex:s.items[pos-1].ex, ov:overlapOf(exById(s.items[pos-1].ex), ex).v } : null, bad:!!((s.ready && BAD_DAY.has(s.ready.level)) || s.light || s.easy || it.pain), light:!!(s.light || s.easy), flag:(it.target && it.target.flag) || null });
     prior.push(...work); bestScore = Math.max(bestScore, score); bestDay = Math.max(bestDay, day); });
   return out;
 }
@@ -945,11 +948,12 @@ function targetFor(tpl, ctx){
       : bk.why === "middle" ? `${topW} ${ago} dropped you below ${lo}, so meet in the middle: ${fmtW(bk.w)}, then build up from there.`
       : `${topW} ${ago} dropped you below ${lo}. Back to ${fmtW(bk.w)} and add a rep; you'll move up again once your first set reaches ${hi} with a normal drop after.`);
   }
-  if (ctx.light){
+  if (ctx.light || ctx.easy){
     const lw = ref.work, isT = ex.t === "time", A = isAssisted(ex), Wl = lw.some(q => num(q.w) > 0) ? (A ? Math.min(...lw.map(q => num(q.w) || 0)) : Math.max(...lw.map(q => num(q.w) || 0))) : "";
-    if (isT){ const T = Math.max(...lw.map(q => parseTime(q.r) || 0)); return fill(Wl, fmtTime(Math.max(lo, Math.round(T * .8 / 5) * 5)), "deload", "Lighter week: hold about 80% of your usual time."); }
+    if (isT){ const T = Math.max(...lw.map(q => parseTime(q.r) || 0)); return fill(Wl, fmtTime(Math.max(lo, Math.round(T * .8 / 5) * 5)), "deload", ctx.light ? "Lighter week: hold about 80% of your usual time." : "Easier mid-block week: hold about 80% of your usual time."); }
     const rr = lw.filter(q => Wl === "" || (num(q.w) || 0) === Wl).map(q => num(q.r) || 0);
-    return fill(Wl, Math.max(Math.min(lo, Math.max(...rr)), Math.min(...rr) - 2), "deload", `Lighter week: same ${A ? "assistance" : "weight"}, a couple of reps short of ${ago}, and stop 3–4 reps before failure. You'll come back stronger.`);
+    return fill(Wl, Math.max(Math.min(lo, Math.max(...rr)), Math.min(...rr) - 2), "deload", ctx.light ? `Lighter week: same ${A ? "assistance" : "weight"}, a couple of reps short of ${ago}, and stop 3–4 reps before failure. You'll come back stronger.`
+      : `Easier mid-block week: same ${A ? "assistance" : "weight"}, a couple of reps short of ${ago}, and stop 3–4 reps before failure. The build-up starts again next week.`);
   }
   const work = ref.work.some(s => s.tag !== "D") ? ref.work.filter(s => s.tag !== "D") : ref.work;
   const away = Math.round((Date.now() - latest.at) / (7*dayMs));
@@ -1715,7 +1719,7 @@ function blockCard(){
   const rir = effortFor(I.week, b.weeks, b.intro), left = Math.max(1, b.weeks - I.done);
   return `<div class="panel" style="gap:8px"><div class="row"><b class="grow">Block ${b.n} · Week ${Math.min(I.week, b.weeks)} of ${b.weeks}</b><span class="hint num">${left === 1 ? "last week" : `refresh in ${left} weeks`}</span></div>
     <div class="pbar"><span style="width:${Math.min(100, I.done / b.weeks * 100)}%"></span></div>
-    <span class="hint">${I.intro ? "Learning week, which doubles as a deload: one set fewer per exercise. Stop 3–4 reps short of failure and find your weights." : I.week >= b.weeks ? "Last week of the block: take your working sets to 0–1 reps short of failure. Next block starts with a learning week that doubles as your deload." : `This week: stop working sets ${rir[0]}–${rir[1]} reps short of failure.`}${!I.intro && b.weeks >= 4 && I.week >= 3 && state.buildOn !== false ? ` Build week: up to ${I.week >= 4 ? 2 : 1} exercise${I.week >= 4 ? "s" : ""} a day get${I.week >= 4 ? "" : "s"} a 4th set when they're still progressing.` : ""}</span></div>`;
+    <span class="hint">${I.intro ? "Learning week, which doubles as a deload: one set fewer per exercise. Stop 3–4 reps short of failure and find your weights." : I.week === easyWeekOf(b.weeks) ? "Easier mid-block week: same weights, no 4th sets, stop 3–4 reps short of failure. The build-up starts again next week." : I.week >= b.weeks ? "Last week of the block: take your working sets to 0–1 reps short of failure. Next block starts with a learning week that doubles as your deload." : `This week: stop working sets ${rir[0]}–${rir[1]} reps short of failure.`}${(() => { const n = buildCount({ week:I.week, weeks:b.weeks, intro:I.intro, easy:I.week === easyWeekOf(b.weeks) }); return n ? ` Build week: up to ${n} exercise${n > 1 ? "s" : ""} a day get${n > 1 ? "" : "s"} a 4th set when they're still progressing.` : ""; })()}</span></div>`;
 }
 
 function sessionView(){
@@ -1773,7 +1777,7 @@ function sessionView(){
     ${a.ready && a.ready.level !== "normal" ? `<p class="${a.ready.level === "rough" || a.ready.level === "recovery" ? "err" : a.ready.level === "great" ? "ok" : "hint"}" style="margin:-4px 0 0">${READY_MSG[a.ready.level]}</p>` : ""}
     ${a.coach ? `<p class="notepre" style="margin:-4px 4px 0">🤖 ${esc(a.coach)}</p>` : ""}
     ${a.light ? `<p class="hint" style="margin:-4px 4px 0">🌙 Lighter week: one set fewer, same weights, stop 3–4 reps before failure.</p>` : ""}
-    ${w ? `<p class="hint" style="margin:-6px 4px 0">${w.intro ? "Learning week: one set fewer per exercise. Stop 3–4 reps short of failure and find your working weights." : w.week >= w.weeks ? "Last week of the block: take working sets to 0–1 reps short of failure." : `This week: stop working sets ${w.rir[0]}–${w.rir[1]} reps short of failure.`}</p>` : ""}
+    ${w ? `<p class="hint" style="margin:-6px 4px 0">${w.intro ? "Learning week: one set fewer per exercise. Stop 3–4 reps short of failure and find your working weights." : a.easy ? "Easier mid-block week: same weights, no extra sets, stop 3–4 reps short of failure. The build-up starts again next week." : w.week >= w.weeks ? "Last week of the block: take working sets to 0–1 reps short of failure." : `This week: stop working sets ${w.rir[0]}–${w.rir[1]} reps short of failure.`}</p>` : ""}
     ${items || `<p class="hint">No exercises yet. Add some below.</p>`}
     <button data-act="pick" data-target="session" id="addExSess">+ Add exercise</button>
     <div class="btnrow">${a.savedId && state.saved.some(z => z.id === a.savedId) ? `<button class="small" data-act="updateSaved" id="updateSaved">💾 Update “${esc(state.saved.find(z => z.id === a.savedId).name)}”</button>` : ""}<button class="small ghost" data-act="saveActive" id="saveActive">💾 Save as a new saved workout</button></div>
@@ -3304,7 +3308,9 @@ function buildSessionItem(tpl, ctx, exactSets){
 // gets one if it's still progressing, set 3 last time stayed in your range, nothing hurt, and you're recovered.
 // A 4th set that falls below the range ends the extra set for that exercise for the rest of the block.
 function buildCount(ctx){
-  if (state.buildOn === false || ctx.intro || ctx.lighter || ctx.light || ctx.ready === "rough" || ctx.ready === "off" || (ctx.weeks || 0) < 4) return 0;
+  if (state.buildOn === false || ctx.intro || ctx.easy || ctx.lighter || ctx.light || ctx.ready === "rough" || ctx.ready === "off" || (ctx.weeks || 0) < 4) return 0;
+  const mid = easyWeekOf(ctx.weeks);
+  if (mid && ctx.week > mid) return ctx.week - mid >= 2 ? 2 : 1;
   return ctx.week >= 4 ? 2 : ctx.week >= 3 ? 1 : 0;
 }
 function extraOK(tpl, item){
@@ -3331,7 +3337,7 @@ function startSession(day, rd){
   if (rd) applyReady(ctx, rd.level);
   if (lightOn()){ ctx.light = true; ctx.lighter = true; ctx.rir = ctx.rir.map(v => Math.min(4, v + 2)); }
   state.active = { id:uid(), dayId: day ? day.id : null, dayName: day ? day.name : "Workout", start:Date.now(), items: day ? day.items.map(it => buildSessionItem(it, ctx)) : [], lastDone:null,
-    wk: day ? { week:ctx.week, weeks:ctx.weeks, intro:ctx.intro, rir:ctx.rir } : null, ready: rd || null, ...(ctx.light ? { light:true } : {}) };
+    wk: day ? { week:ctx.week, weeks:ctx.weeks, intro:ctx.intro, rir:ctx.rir } : null, ready: rd || null, ...(ctx.light ? { light:true } : {}), ...(ctx.easy && day && !day.savedId ? { easy:true } : {}) };
   if (day && day.savedId) state.active.savedId = day.savedId;
   if (day && !day.savedId) addBuildSets(state.active, day, ctx);
   if (day) pickCalibration(state.active, ctx, rd);
