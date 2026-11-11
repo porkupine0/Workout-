@@ -762,9 +762,10 @@ function overloadHint(item){
   if (!last || ex.t === "time" || !item.hi) return "";
   const work = last.work.filter(s => s.tag !== "D");
   if (!work.length) return "";
-  const hitTop = work.length >= (item.targetSets||1) && work.every(s => (num(s.r)||0) >= item.hi);
+  const R = work.map(s => num(s.r) || 0), lo = item.lo || 1;
+  const hitTop = work.length >= (item.targetSets||1) && R[0] >= item.hi && R.every(r => r >= lo) && R.reduce((a, b) => a + b, 0) >= R.reduce((t, _, k) => t + Math.max(lo, item.hi - 2 * k), 0);
   const easy = work.filter(s => s.rir != null);
-  if (hitTop) return `↑ Hit ${item.hi} reps on every set last time. Try +${U()==="kg"?"2.5":"5"} ${U()}.`;
+  if (hitTop) return `↑ Hit ${item.hi} on your first set last time and held up after. Try +${U()==="kg"?"2.5":"5"} ${U()}.`;
   if (easy.length && easy.every(s => s.rir >= 4)) return `Last time every set was 4+ reps from failure. Push closer: aim for 1–3 in reserve.`;
   return "";
 }
@@ -885,7 +886,8 @@ function analyzeBlock(b){
 function stepFor(ex, w){ const kg = U() === "kg"; if (ex.e === "DB") return kg ? 2 : 5; if (ex.e === "KB") return kg ? 4 : 5; if (LOWER.has(ex.m) && ["BB","TB","SM","MA","PL"].includes(ex.e) && w >= (kg ? 40 : 90)) return kg ? 5 : 10; return kg ? 2.5 : 5; }
 const granFor = ex => U() === "kg" ? (ex.e === "KB" ? 4 : ex.e === "DB" ? 2 : 2.5) : 5;   // smallest change you can actually load
 const roundTo = (w, st) => Math.max(st, Math.round(w / st) * st);
-// Double progression: add reps until every set reaches the top of the range, then add weight (upper body about
+// Double progression: add reps until the first set reaches the top of the range with the later sets within the normal
+// fatigue drop (about 2 reps per set, all in range), then add weight (upper body about
 // 5 lb, lower body about 10 lb, as the NSCA suggests) and work back up. The reference is the same day last week
 // when there is one, otherwise the latest session. Two sessions down in a row slows it. Three with no progress of any
 // kind gets a diagnosis, one fix at a time: push harder (3+ reps left), rest fully (short rests), move it earlier
@@ -940,9 +942,18 @@ function targetFor(tpl, ctx){
   const W = Math.max(0, ...work.map(s => num(s.w) || 0));
   const top = W ? work.filter(s => (num(s.w) || 0) === W) : work, topR = top.map(s => num(s.r) || 0);
   const known = top.filter(s => s.rir != null), avgRir = known.length ? avg(known.map(s => s.rir)) : null;
+  // Ready to move up: the first set reached the top of the range, every set stayed in range, and the sets fell off by no more
+  // than about 2 reps per set (the normal fatigue drop with full rests). On 8–12: 12, 12, 8 and 12, 10, 8 qualify; 12, 10, 7
+  // and 11, 11, 11 don't.
+  const nR = topR.length, sumR = topR.reduce((a, b) => a + b, 0), readyAt = h => topR[0] >= h && topR.every(r => r >= lo) && sumR >= topR.reduce((t, _, k) => t + Math.max(lo, h - 2 * k), 0), ready = readyAt(hi);
+  // your own set-to-set drop at one weight, from your last 3 workouts on this exercise (default 1 rep per set, at most 3)
+  const drop = (() => { const D = []; H.slice(-3).forEach(h => { const ws = h.work.filter(q => q.tag !== "D"), w0 = num(ws[0] && ws[0].w) || 0, same = ws.filter(q => (num(q.w) || 0) === w0).map(q => num(q.r) || 0);
+      if (same.length >= 2) same.forEach((r, k) => { if (k) (D[k] = D[k] || []).push(same[0] - r); }); });
+    return Array.from({ length:n }, (_, k) => k === 0 ? 0 : Math.max(0, Math.min(3 * k, Math.round(D[Math.min(k, D.length - 1)] && D[Math.min(k, D.length - 1)].length ? avg(D[Math.min(k, D.length - 1)]) * (k >= D.length ? k / (D.length - 1) : 1) : k)))); })();
+  const withDrop = r => drop.map(d => Math.max(lo, r - d));
   if (!W){
     if (ctx.intro) return fill("", Math.max(1, Math.min(...topR) - 2), "deload", "Learning week: a couple of reps short of last time.");
-    if (topR.every(r => r >= hi)) return fill("", hi, "up", `You hit ${hi}+ on every set ${ago}. Add weight (a belt or dumbbell), slow the lowering to 3 seconds, or try a harder version.`);
+    if (ready) return fill("", hi, "up", `You hit ${hi} on your first set ${ago} and held up after. Add weight (a belt or dumbbell), slow the lowering to 3 seconds, or try a harder version.`);
     return fill("", topR.map(r => Math.min(hi, r + 1)), "same", `Beat ${ago} by a rep on each set.`);
   }
   const st = stepFor(ex, W), gr = granFor(ex);
@@ -951,16 +962,17 @@ function targetFor(tpl, ctx){
   const repsAt = w => Math.floor(30 * (e1 / (w + bs) - 1)) - rir[1];   // reps at plates w (plus the machine's starting resistance), leaving this week's reserve
   if (ctx.intro){ const w = pct90(); return fill(w, Math.max(lo, Math.min(hi, repsAt(w))), "deload", `Learning week: about 90% of ${ago} (${fmtW(W)}). Stop 3–4 reps short of failure.`); }
   if (away >= 6){ const w = pct90(); return fill(w, lo, "down", `It's been ${away} weeks since you did this. Start around 90% of last time and build back up.`); }
-  if (topR.every(r => r >= hi) && (ctx.ready === "rough" || ctx.ready === "off"))
+  if (ready && (ctx.ready === "rough" || ctx.ready === "off"))
     return ctx.ready === "rough" ? fill(W, topR, "same", `Rough day: hold at ${fmtW(W)} and match ${ago}. The jump can wait for a better day.`)
       : fill(W, topR.map(r => r + 1), "same", `You've earned a jump, but not on an off day. Stay at ${fmtW(W)} and add a rep.`);
   // great day: within a rep of the top of the range is close enough to take the next weight
-  if (ctx.ready === "great" && !topR.every(r => r >= hi) && topR.every(r => r >= hi - 1)){
+  if (ctx.ready === "great" && !ready && readyAt(hi - 1)){
     const w = roundTo(W + st, gr), r = Math.min(hi, Math.floor(30 * (e1 / (w + bs) - 1)) - rir[0]);   // feeling great: the harder end of this week's effort
-    if (w > W && r >= lo) return fill(w, r, "up", `Great day: you were within a rep of ${hi} ${ago}, so take the jump to ${fmtW(w)} and aim for ${r}. If the first set moves slowly, drop back to ${fmtW(W)}.`);
+    if (w > W && r >= lo) return fill(w, withDrop(r), "up", `Great day: you were within a rep of ${hi} ${ago}, so take the jump to ${fmtW(w)} and aim for ${r} on your first set. If the first set moves slowly, drop back to ${fmtW(W)}.`);
   }
-  if (topR.every(r => r >= hi)){
-    for (let j = topR.every(r => r >= hi + 2) ? 2 : 1; j >= 1; j--){ const w = roundTo(W + st*j, gr), r = Math.min(hi, repsAt(w)); if (w > W && r >= lo) return fill(w, r, "up", `Up ${fmtW(w - W)}: you hit ${hi}+ reps on every set ${ago}. Aim for ${r} or more.`); }
+  if (ready){
+    for (let j = readyAt(hi + 2) ? 2 : 1; j >= 1; j--){ const w = roundTo(W + st*j, gr), r = Math.min(hi, Math.floor(30 * (e1 / (w + bs) - 1)) - rir[0]), T = withDrop(r);   // first set at the lower end of this week's reserve; later sets follow your usual drop
+      if (w > W && r >= lo) return fill(w, T, "up", `Up ${fmtW(w - W)}: you hit ${hi} on your first set ${ago} and the rest stayed in range. Aim for ${T.join(", ")}${n > 1 && T.some((v, k) => k && v < T[0]) ? `, following your usual drop from set to set` : ""}.`); }
     const jp = Math.round(st / W * 100), cap = hi + 3;
     if (topR.every(r => r >= cap)) return fill(W, cap, "same", `You've outgrown ${fmtW(W)}, but ${fmtW(W + st)} is a ${jp}% jump. Keep doing ${cap}s here with a slow 3-second lowering, add a set, or swap to a cable or machine version where the weight goes up in smaller steps.`);
     return fill(W, topR.map(r => Math.min(cap, r + 1)), "same", `${fmtW(W + st)} would be a ${jp}% jump from ${fmtW(W)}. Earn it first: add a rep to each set, up to ${cap}.`);
@@ -1825,7 +1837,7 @@ function playbook(){
       <li><b>Week 1 of a new block is a learning week.</b> You do one set fewer and stop 3–4 reps short of failure while you find your weights. It doubles as a deload. Easier training beats a week off: a full week off cost strength in one study (Coleman 2024).</li>
       <li><b>Put your priority muscle first.</b> Exercises done early in a workout gain the most strength (Nunes 2021 meta-analysis).</li>
       <li><b>Train muscles at long lengths.</b> Seated leg curls grew the hamstrings more than lying curls (Maeo 2021), and overhead extensions grew the triceps more than pushdowns (Maeo 2023).</li>
-      <li><b>Add weight once you top out your rep range on every set,</b> then work back up. That's double progression. Upper-body jumps are about 2.5–5 lb, lower-body about 5–10 lb (NSCA). Your targets do this for you.</li>
+      <li><b>Add weight once your first set tops out your rep range and the others stay in range,</b> dropping no more than about 2 reps per set from fatigue. Then work back up. That's double progression. Upper-body jumps are about 2.5–5 lb, lower-body about 5–10 lb (NSCA). Your targets do this for you.</li>
       <li><b>Rest 60–90 s on isolation moves, 2–3 min on big compounds.</b> A 2024 meta-analysis found a small growth advantage for resting more than 60 s instead of less, and no clear extra benefit past about 90 s. Heavy squats, deadlifts and presses get longer so you can repeat your reps. New exercises you add get these rest times automatically.</li>
       <li><b>Train close to failure.</b> Most working sets should end 0–3 reps short of failure (RIR 0–3). Log it with the RIR buttons after each set.</li>
       <li><b>Aim for about 10–20 hard sets per muscle each week,</b> split over 2 or more sessions. The Progress tab tracks this for you.</li>
