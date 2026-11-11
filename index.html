@@ -364,6 +364,23 @@ function overlapOf(a, b){
   return { v:total, m:top, same:top && A[top] === 1 && B[top] === 1 };
 }
 const tooClose = o => o.v >= .5 && o.m;
+// Rest between exercises depends on what comes next (Matos 2021; Willardson 2006): the same muscles get a full rest like
+// between sets; a muscle that just helped (rows before curls) gets about 2 minutes; unrelated muscles only need setup time,
+// since fatigue barely carries over to muscles you haven't worked (Behm 2021). After or before a big, heavy lift, 2 minutes
+// to get your breathing and focus back.
+function transitionRest(from, to){   // from: [{ x, rest }] (the exercise or superset just finished), to: { x, rest }
+  let best = null;
+  from.forEach(f => {
+    const o = overlapOf(f.x, to.x), rA = f.rest || restFor(f.x), rB = to.rest || restFor(to.x);
+    const r = tooClose(o) && o.same ? { sec:Math.max(rA, rB), why:"same muscles, full rest" }
+      : tooClose(o) ? { sec:120, why:`your ${(MUSCLE_WORD[o.m] || o.m).toLowerCase()} just worked` }
+      : klass(to.x) === "heavy" && LIFT_MUSCLES.includes(to.x.m) ? { sec:120, why:"big lift next" }
+      : klass(f.x) === "heavy" && LIFT_MUSCLES.includes(f.x.m) ? { sec:120, why:"catch your breath" }
+      : { sec:60, why:"different muscles" };
+    if (!best || r.sec > best.sec) best = r;
+  });
+  return best;
+}
 // Weekly set credit: a set counts fully for the muscle it mainly trains, and half for a big helper (rows → biceps, presses →
 // triceps, squats and hinges → glutes), the way recent volume research counts indirect sets (Pelland 2024).
 const HELPER_TO = { Chest:"Chest", Back:"Back", Biceps:"Biceps", Triceps:"Triceps", Delts:"Shoulders", Quads:"Quads", Hamstrings:"Hamstrings", Glutes:"Glutes", Calves:"Calves", Core:"Core" };
@@ -2672,9 +2689,11 @@ function cleanAiItems(list){
 const workSec = x => (x.t === "time" ? 45 : ({ heavy:50, comp:45, iso:40 }[klass(x)] || 45)) * (isUni(x) ? 1.8 : 1);   // one side at a time: both sides per set
 const rampSec = x => klass(x) === "heavy" ? 180 : 0;
 function estTime(list){   // list: [{ x:exercise, sets, rest, ss }]
-  let sec = 300;
+  let sec = 300, prev = null;
   for (let i = 0; i < list.length; i++){
     const a = list[i], b = a.ss && list[i+1] ? list[i+1] : null, ra = a.rest || restFor(a.x);
+    if (prev) sec += Math.max(0, transitionRest(prev, a).sec - 60);   // rest before this exercise beyond the setup minute
+    prev = b ? [a, b] : [a];
     sec += 60 + rampSec(a.x);
     if (b){
       const rb = b.rest || restFor(b.x), n = Math.max(a.sets, b.sets), m = Math.min(a.sets, b.sets), big = a.sets >= b.sets ? a : b;
@@ -2834,7 +2853,7 @@ function readyText(A){
   const c = {}; R.forEach(x => { c[x.ready.level] = (c[x.ready.level] || 0) + 1; });
   return `Pre-workout check-ins this block: ${Object.entries(c).map(([k, n]) => `${n} ${READY_WORD[k] || k}`).join(", ")} (of ${R.length}).`;
 }
-const TIMING_TEXT = `Timing rule the app uses to check each day: 5 min general warm-up; per exercise 1 min to set up plus 3 min of ramp-up sets before a big main lift; each set takes about 50 s (big lifts), 45 s (other compounds) or 40 s (isolation), 1.8× that for one-side-at-a-time exercises (both sides per set), plus its rest between sets. A superset alternates two exercises with 20 s to switch and one rest per round of about 75% of the longer rest.`;
+const TIMING_TEXT = `Timing rule the app uses to check each day: 5 min general warm-up; per exercise 1 min to set up plus 3 min of ramp-up sets before a big main lift; each set takes about 50 s (big lifts), 45 s (other compounds) or 40 s (isolation), 1.8× that for one-side-at-a-time exercises (both sides per set), plus its rest between sets. Between exercises: a full rest when the next one trains the same muscles, about 2 minutes when a muscle just helped (rows then curls) or around a big heavy lift, otherwise about 1 minute. A superset alternates two exercises with 20 s to switch and one rest per round of about 75% of the longer rest.`;
 function bodyText(){
   const g = state.goals, out = [], lw = latest("w"), wt = weightTrend(), wa = latest("waist");
   const prof = [g.age ? `${g.age} years old` : "", g.sex === "m" ? "male" : g.sex === "f" ? "female" : "", g.height ? `${g.height} tall` : ""].filter(Boolean).join(", ");
@@ -3338,8 +3357,12 @@ document.addEventListener("click", e => {
       const moreLeft = state.active.items.some(q => q.sets.some(z => !z.done));
       const partner = it.ss ? state.active.items[x+1] : null;
       if (partner && partner.sets.some(z => !z.done)){ state.timer = null; showToast(`Superset: go straight to ${exById(partner.ex).n}`); }
-      else if (moreLeft){ const prevIt = x > 0 && state.active.items[x-1].ss ? state.active.items[x-1] : null;
-        startTimer(s.tag === "W" ? Math.min(60, it.rest) : it.rest, prevIt ? `Next round: ${exById(prevIt.ex).n}` : `Next: ${nx && !nx.done ? ex.n : "next exercise"}`); }
+      else if (moreLeft){ const prevIt = x > 0 && state.active.items[x-1].ss ? state.active.items[x-1] : null, unit = prevIt ? [prevIt, it] : [it];
+        if (unit.every(q => q.sets.every(z => z.done))){
+          const its = state.active.items, next = its.find((q, i) => i > x && q.sets.some(z => !z.done)) || its.find(q => q.sets.some(z => !z.done));
+          const tr = transitionRest(unit.map(q => ({ x:exById(q.ex), rest:q.rest })), { x:exById(next.ex), rest:next.rest });
+          startTimer(tr.sec, `Next: ${exById(next.ex).n} · ${tr.why}`);
+        } else startTimer(s.tag === "W" ? Math.min(60, it.rest) : it.rest, prevIt ? `Next round: ${exById(prevIt.ex).n}` : `Next: ${nx && !nx.done ? ex.n : "next exercise"}`); }
       else state.timer = null;
       save(); render(); break;
     }
