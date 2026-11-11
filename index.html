@@ -939,7 +939,10 @@ function targetFor(tpl, ctx){
   }
   // you went heavier than your target, dropped below the range, and chose to step back
   if (latest.back && latest.back.w !== ""){
-    const bk = latest.back; return fill(bk.w, bk.reps, "down", `${fmtW(Math.max(...latest.work.map(q => num(q.w) || 0)))} ${ago} dropped you below ${lo}. Back to ${fmtW(bk.w)} and add a rep; you'll move up again once your first set reaches ${hi} with a normal drop after.`);
+    const bk = latest.back, topW = fmtW(Math.max(...latest.work.map(q => num(q.w) || 0)));
+    return fill(bk.w, bk.reps, "down", bk.why === "yours" ? `Your plan after ${topW} ${ago}: ${fmtW(bk.w)} × ${bk.reps.join(", ")}.`
+      : bk.why === "middle" ? `${topW} ${ago} dropped you below ${lo}, so meet in the middle: ${fmtW(bk.w)}, then build up from there.`
+      : `${topW} ${ago} dropped you below ${lo}. Back to ${fmtW(bk.w)} and add a rep; you'll move up again once your first set reaches ${hi} with a normal drop after.`);
   }
   if (ctx.light){
     const lw = ref.work, isT = ex.t === "time", A = isAssisted(ex), Wl = lw.some(q => num(q.w) > 0) ? (A ? Math.min(...lw.map(q => num(q.w) || 0)) : Math.max(...lw.map(q => num(q.w) || 0))) : "";
@@ -3350,24 +3353,38 @@ function overreach(a){
       if (atT.length && low.length && (num(atT[0].r) || 0) < lo + 2){
         const prevW = it.target.from != null ? it.target.from : (() => { const H = exposures(it.ex), p = H.length ? H[H.length - 1] : null; return p ? Math.max(...p.work.map(q => num(q.w) || 0)) : 0; })();
         const prevR = it.target.fromReps || [lo], reps = prevR.map(r => Math.min(hi, (num(r) || lo) + 1));
-        if (prevW && prevW < tw) out.push({ x:xi, name:ex.n, top:tw, low:low.map(q => num(q.r) || 0), lo, back:prevW, reps, pick:"back", jump:true });
-        return;
+        if (prevW && prevW < tw){ out.push({ x:xi, name:ex.n, top:tw, low:low.map(q => num(q.r) || 0), lo, hi, back:prevW, reps, pick:"back", jump:true }); return; }
       }
     }
     const W = it.sets.filter(q => q.done && q.tag !== "W" && q.tag !== "D"), heavy = W.filter(q => (num(q.w) || 0) > tw);
     if (!heavy.length || !heavy.some(q => (num(q.r) || 0) < lo)) return;
     const okW = [...new Set(W.map(q => num(q.w) || 0))].filter(w => W.filter(q => (num(q.w) || 0) === w).every(q => (num(q.r) || 0) >= lo)).sort((x, y) => y - x)[0];
     const back = okW && okW <= Math.max(...heavy.map(q => num(q.w) || 0)) ? okW : tw, reps = it.target.reps && it.target.reps.length ? it.target.reps.map(num) : [lo];
-    out.push({ x:xi, name:ex.n, top:Math.max(...heavy.map(q => num(q.w) || 0)), low:heavy.filter(q => (num(q.r) || 0) < lo).map(q => num(q.r) || 0), lo, back, reps, pick:"back" });
+    out.push({ x:xi, name:ex.n, top:Math.max(...heavy.map(q => num(q.w) || 0)), low:heavy.filter(q => (num(q.r) || 0) < lo).map(q => num(q.r) || 0), lo, hi:it.hi || 12, back, reps, pick:"back" });
   });
+  out.forEach(o => { const it = a.items[o.x]; o.reps = o.reps.map(r => Math.max(o.lo, Math.min(o.hi, num(r) || o.lo))); o.mid = midOption(o, it); o.cw = ""; o.cr = ""; });
   return out;
 }
+// halfway between where you were and where you went, with reps estimated from your heavy sets
+function midOption(o, it){
+  const ex = exById(it.ex), gr = granFor(ex), bs = baseOf(ex), mid = roundTo((o.back + o.top) / 2, gr);
+  if (!(mid > o.back && mid < o.top)) return null;
+  const heavy = it.sets.filter(q => q.done && q.tag !== "W" && q.tag !== "D" && (num(q.w) || 0) >= o.top), r0 = Math.max(...heavy.map(q => num(q.r) || 0), 1);
+  const e1 = (o.top + bs) * (1 + r0 / 30), first = Math.max(o.lo, Math.min(o.hi, Math.floor(30 * (e1 / (mid + bs) - 1)) - 1));
+  return { w:mid, reps:o.reps.map((_, k) => Math.max(o.lo, first - k)) };
+}
+const parseReps = t => String(t || "").split(/[^0-9]+/).map(Number).filter(v => v > 0 && v < 100).slice(0, 8);
 function reachPanel(){
   if (!oreach) return "";
   return `<div class="panel" id="oreach" role="alert" style="gap:10px;border:2px solid var(--accent)"><b>⚖️ ${oreach.every(o => o.jump) ? "That jump was a lot" : "Went a little heavy?"}</b>
     ${oreach.map((o, i) => `<div style="display:flex;flex-direction:column;gap:6px"><span>${esc(o.name)}: ${o.jump ? `the move up to ${fmtW(o.top)} got ${o.low.join(", ")}` : `${fmtW(o.top)} for ${o.low.join(", ")}`}, under your ${o.lo}+ range.</span>
-      <div class="chips"><button class="chip" data-act="reachPick" data-i="${i}" data-v="back" id="rb-${i}" aria-pressed="${o.pick === "back"}">Next time: ${fmtW(o.back)} × ${o.reps.join(", ")}</button><button class="chip" data-act="reachPick" data-i="${i}" data-v="stay" id="rs-${i}" aria-pressed="${o.pick === "stay"}">Stay at ${fmtW(o.top)}</button>
-      <button class="chip" data-act="reachPain" data-i="${i}" id="rp-${i}" aria-pressed="${!!state.active.items[o.x].pain}">😣 It hurt</button></div></div>`).join("")}
+      <div class="chips"><button class="chip" data-act="reachPick" data-i="${i}" data-v="back" id="rb-${i}" aria-pressed="${o.pick === "back"}">Next time: ${fmtW(o.back)} × ${o.reps.join(", ")}</button>
+      ${o.mid ? `<button class="chip" data-act="reachPick" data-i="${i}" data-v="mid" id="rmid-${i}" aria-pressed="${o.pick === "mid"}">Middle: ${fmtW(o.mid.w)} × ${o.mid.reps.join(", ")}</button>` : ""}
+      <button class="chip" data-act="reachPick" data-i="${i}" data-v="stay" id="rs-${i}" aria-pressed="${o.pick === "stay"}">Stay at ${fmtW(o.top)}</button>
+      <button class="chip" data-act="reachPick" data-i="${i}" data-v="custom" id="rc-${i}" aria-pressed="${o.pick === "custom"}">✏️ My own</button>
+      <button class="chip" data-act="reachPain" data-i="${i}" id="rp-${i}" aria-pressed="${!!state.active.items[o.x].pain}">😣 It hurt</button></div>
+      ${o.pick === "custom" ? `<div class="row" style="gap:8px;flex-wrap:wrap;align-items:center"><input type="text" inputmode="decimal" id="rcw-${i}" data-rcw="${i}" value="${esc(o.cw)}" placeholder="Weight" aria-label="Weight for next time" style="width:90px" autocomplete="off"><span>×</span>
+        <input type="text" inputmode="numeric" id="rcr-${i}" data-rcr="${i}" value="${esc(o.cr)}" placeholder="Reps, e.g. 10, 9, 8" aria-label="Reps for next time" class="grow" style="min-width:150px" autocomplete="off"></div>` : ""}</div>`).join("")}
     <span class="hint" style="font-size:12.5px">Stepping back keeps your reps in the range that builds muscle and lets you add weight again with good form. “It hurt” makes next time about 15% lighter.</span>
     <button class="primary" data-act="reachFinish" id="reachFinish">Save and finish</button></div>`;
 }
@@ -3376,7 +3393,10 @@ function tryFinish(skipTypos){
   if (!skipTypos){ const iss = finishIssues(state.active); if (iss.length){ fcheck = iss; render(); const el = document.getElementById("fcheck"); if (el) el.scrollIntoView({ block:"center", behavior:"smooth" }); return; } }
   fcheck = null;
   if (!oreach){ const ov = overreach(state.active); if (ov.length){ oreach = ov; render(); const el = document.getElementById("oreach"); if (el) el.scrollIntoView({ block:"center", behavior:"smooth" }); return; } }
-  if (oreach) oreach.forEach(o => { const it = state.active.items[o.x]; if (it) it.back = o.pick === "back" ? { w:o.back, reps:o.reps } : null; });
+  if (oreach) oreach.forEach(o => { const it = state.active.items[o.x]; if (!it) return;
+    const cw = num(o.cw), cr = parseReps(o.cr);
+    it.back = o.pick === "back" ? { w:o.back, reps:o.reps } : o.pick === "mid" && o.mid ? { w:o.mid.w, reps:o.mid.reps, why:"middle" }
+      : o.pick === "custom" && cw > 0 ? { w:cw, reps:cr.length ? cr : o.reps, why:"yours" } : null; });
   oreach = null; finishSession();
 }
 function checkPanel(){
@@ -3496,7 +3516,7 @@ document.addEventListener("click", e => {
     case "sxRm": confirmThen("sxrm"+x, ()=>{ state.active.items.splice(x,1); save(); render(); }); break;
     case "finish": tryFinish(false); break;
     case "fcFinish": tryFinish(true); break;
-    case "reachPick": oreach[+b.dataset.i].pick = b.dataset.v; render(); break;
+    case "reachPick": oreach[+b.dataset.i].pick = b.dataset.v; render(); if (b.dataset.v === "custom"){ const el = document.getElementById(`rcw-${b.dataset.i}`); if (el) el.focus(); } break;
     case "reachPain": { const it = state.active.items[oreach[+b.dataset.i].x]; it.pain = !it.pain; save(); render(); break; }
     case "reachFinish": tryFinish(true); break;
     case "histPain": { const ss = state.sessions.find(z => z.id === b.dataset.sid), it = ss && ss.items[+b.dataset.i]; if (it){ it.pain = !it.pain; save(); render(); if (it.pain) showToast(`Noted. ${exById(it.ex).n} starts about 15% lighter next time.`); } break; }
@@ -3670,6 +3690,8 @@ document.addEventListener("input", e => {
   if (t.dataset.dname != null){ state.days[+t.dataset.dname].name = t.value; save(); }
   if (t.id === "aiAskIn" && review && review.ai) review.ai.ask = t.value;
   if (t.dataset.base){ const v = parseFloat(t.value.replace(",", ".")); if (t.value.trim() === "") delete state.base[t.dataset.base]; else if (!isNaN(v) && v >= 0 && v < 1000) state.base[t.dataset.base] = v; save(); }
+  if (t.dataset.rcw != null && oreach){ oreach[+t.dataset.rcw].cw = t.value; }
+  if (t.dataset.rcr != null && oreach){ oreach[+t.dataset.rcr].cr = t.value; }
   if (t.dataset.gtext){ state.goals[t.dataset.gtext] = t.value.slice(0, 600); save(); }
   if (t.dataset.gnum){ const v = parseInt(t.value.replace(/\D/g, ""), 10); state.goals[t.dataset.gnum] = isNaN(v) ? null : Math.min(99, v); save(); }
   if (t.id === "restoreBox") restoreText = t.value;
