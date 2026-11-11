@@ -938,7 +938,7 @@ function targetFor(tpl, ctx){
   }
   // you went heavier than your target, dropped below the range, and chose to step back
   if (latest.back && latest.back.w !== ""){
-    const bk = latest.back; return fill(bk.w, bk.reps, "down", `You went up to ${fmtW(Math.max(...latest.work.map(q => num(q.w) || 0)))} ${ago} and dropped below ${lo}. Back to ${fmtW(bk.w)} to own the range first, then build up from there.`);
+    const bk = latest.back; return fill(bk.w, bk.reps, "down", `${fmtW(Math.max(...latest.work.map(q => num(q.w) || 0)))} ${ago} dropped you below ${lo}. Back to ${fmtW(bk.w)} and add a rep; you'll move up again once your first set reaches ${hi} with a normal drop after.`);
   }
   if (ctx.light){
     const lw = ref.work, isT = ex.t === "time", A = isAssisted(ex), Wl = lw.some(q => num(q.w) > 0) ? (A ? Math.min(...lw.map(q => num(q.w) || 0)) : Math.max(...lw.map(q => num(q.w) || 0))) : "";
@@ -1012,9 +1012,11 @@ function targetFor(tpl, ctx){
   // Same reps on every set, inside the range: with normal rest, reps fall off when sets are close to failure, so flat reps
   // mean the weight is light for you. Go up one step and keep the same reps (unless your last set was logged at 0–1 in reserve).
   const lastRir = top[top.length - 1] && top[top.length - 1].rir;
-  if (nR >= 2 && topR.every(r => r === topR[0]) && topR[0] >= lo && topR[0] < hi && !(lastRir != null && lastRir + B <= 1) && !["rough","off"].includes(ctx.ready)){
+  const failedTest = H.slice(-3).some(h => h.back);   // stepped back from a jump recently: wait for the normal rule instead of testing again
+  if (nR >= 2 && !failedTest && topR.every(r => r === topR[0]) && topR[0] >= lo && topR[0] < hi && !(lastRir != null && lastRir + B <= 1) && !["rough","off"].includes(ctx.ready)){
     const w = roundTo(W + st, gr);
-    if (w > W && st / (W + bs) <= .15){ const T = withDrop(topR[0]); return fill(w, T, "up", `Your reps didn't drop at all (${topR.join(", ")}), so ${fmtW(W)} is light for you. Up ${fmtW(w - W)}, same reps: aim for ${T.join(", ")}.`); }
+    if (w > W && st / (W + bs) <= .15){ const T = withDrop(topR[0]), again = latest.flag === "test";
+      return Object.assign(fill(w, T, "up", `${again ? `Still flat after the last jump (${topR.join(", ")}). Your sets may be stopping at the target rather than near failure, so take set 1 to 1–2 reps short of failure. ` : `Your reps didn't drop at all (${topR.join(", ")}), so ${fmtW(W)} is light for you. `}Up ${fmtW(w - W)}, same reps: aim for ${T.join(", ")}. If it's too much, the app will offer to step back.`), { flag:"test", from:W, fromReps:topR }); }
     const T = topR.map(r => Math.min(hi, r + 2));
     return fill(W, T, "same", `Your reps didn't drop at all (${topR.join(", ")}), so there's room left, but ${fmtW(w)} would be a ${Math.round(st / (W + bs) * 100)}% jump. Two more reps per set first: ${T.join(", ")}.`);
   }
@@ -1041,6 +1043,7 @@ function targetFor(tpl, ctx){
   if (slipping) return fill(W, topR, "same", `Down two sessions in a row, so fatigue may be building. Same weight: just match ${ago}.`);
   if (ctx.ready === "rough") return fill(W, topR, "same", `Rough day: same weight, just match ${ago}.`);
   const add = avgRir != null && avgRir >= 3 ? 2 : 1;
+  if (latest.flag === "test" && topR.every(r => r >= lo)) return fill(W, topR.map(r => Math.min(hi, r + add)), "same", `The jump to ${fmtW(W)} held (${topR.join(", ")}), and your reps now fall off like they should. Keep it and add ${add === 2 ? "2 reps" : "a rep"} per set.`);
   return fill(W, topR.map(r => Math.min(hi, r + add)), "same", add === 2 ? `Same weight, 2 more reps: you had 3+ reps left ${ago}.` : `Same weight, one more rep than ${ago}.`);
 }
 function hitTarget(it){
@@ -3254,7 +3257,7 @@ function buildSessionItem(tpl, ctx, exactSets){
   const ex = exById(tpl.ex), n = (ctx.intro || ctx.lighter) && !exactSets && (tpl.sets || 3) > 2 ? (tpl.sets || 3) - 1 : (tpl.sets || 3);
   const t = targetFor({ ...tpl, sets:n }, ctx), last = lastPerf(tpl.ex), lw = last && last.work.length ? String(last.work[0].w || "") : "";
   const sets = Array.from({length:n}, (_,k) => ({ w: t.w !== "" ? String(t.w) : (t.kind === "new" ? "" : lw), r: t.reps[k] !== "" && t.reps[k] != null ? String(t.reps[k]) : "", done:false }));
-  return { ex:tpl.ex, sets, targetSets:n, lo:tpl.lo, hi:tpl.hi, rest:tpl.rest || DEFAULTS[klass(ex)].rest, ss:!!tpl.ss, target:{ w:t.w, reps:t.reps, kind:t.kind, why:t.why, ...(t.flag ? { flag:t.flag } : {}) } };
+  return { ex:tpl.ex, sets, targetSets:n, lo:tpl.lo, hi:tpl.hi, rest:tpl.rest || DEFAULTS[klass(ex)].rest, ss:!!tpl.ss, target:{ w:t.w, reps:t.reps, kind:t.kind, why:t.why, ...(t.flag ? { flag:t.flag } : {}), ...(t.from != null ? { from:t.from, fromReps:t.fromReps } : {}) } };
 }
 function startSession(day, rd){
   const ctx = sessionCtx(day ? day.id : null);
@@ -3304,8 +3307,18 @@ let oreach = null;
 function overreach(a){
   const out = [];
   a.items.forEach((it, xi) => {
-    const ex = exById(it.ex), tw = it.target && num(it.target.w), lo = it.lo || 8;
+    const ex = exById(it.ex), tw = it.target && num(it.target.w), lo = it.lo || 8, hi = it.hi || 12;
     if (!tw || ex.t === "time" || isAssisted(ex)) return;
+    // the app moved you up (a jump or a flat-reps test) and reps fell under the range at that weight
+    if (it.target.kind === "up"){
+      const atT = it.sets.filter(q => q.done && q.tag !== "W" && q.tag !== "D" && (num(q.w) || 0) >= tw), low = atT.filter(q => (num(q.r) || 0) < lo);
+      if (atT.length && low.length && (num(atT[0].r) || 0) < lo + 2){
+        const prevW = it.target.from != null ? it.target.from : (() => { const H = exposures(it.ex), p = H.length ? H[H.length - 1] : null; return p ? Math.max(...p.work.map(q => num(q.w) || 0)) : 0; })();
+        const prevR = it.target.fromReps || [lo], reps = prevR.map(r => Math.min(hi, (num(r) || lo) + 1));
+        if (prevW && prevW < tw) out.push({ x:xi, name:ex.n, top:tw, low:low.map(q => num(q.r) || 0), lo, back:prevW, reps, pick:"back", jump:true });
+        return;
+      }
+    }
     const W = it.sets.filter(q => q.done && q.tag !== "W" && q.tag !== "D"), heavy = W.filter(q => (num(q.w) || 0) > tw);
     if (!heavy.length || !heavy.some(q => (num(q.r) || 0) < lo)) return;
     const okW = [...new Set(W.map(q => num(q.w) || 0))].filter(w => W.filter(q => (num(q.w) || 0) === w).every(q => (num(q.r) || 0) >= lo)).sort((x, y) => y - x)[0];
@@ -3316,8 +3329,8 @@ function overreach(a){
 }
 function reachPanel(){
   if (!oreach) return "";
-  return `<div class="panel" id="oreach" role="alert" style="gap:10px;border:2px solid var(--accent)"><b>⚖️ Went a little heavy?</b>
-    ${oreach.map((o, i) => `<div style="display:flex;flex-direction:column;gap:6px"><span>${esc(o.name)}: ${fmtW(o.top)} for ${o.low.join(", ")}, under your ${o.lo}+ range.</span>
+  return `<div class="panel" id="oreach" role="alert" style="gap:10px;border:2px solid var(--accent)"><b>⚖️ ${oreach.every(o => o.jump) ? "That jump was a lot" : "Went a little heavy?"}</b>
+    ${oreach.map((o, i) => `<div style="display:flex;flex-direction:column;gap:6px"><span>${esc(o.name)}: ${o.jump ? `the move up to ${fmtW(o.top)} got ${o.low.join(", ")}` : `${fmtW(o.top)} for ${o.low.join(", ")}`}, under your ${o.lo}+ range.</span>
       <div class="chips"><button class="chip" data-act="reachPick" data-i="${i}" data-v="back" id="rb-${i}" aria-pressed="${o.pick === "back"}">Next time: ${fmtW(o.back)} × ${o.reps.join(", ")}</button><button class="chip" data-act="reachPick" data-i="${i}" data-v="stay" id="rs-${i}" aria-pressed="${o.pick === "stay"}">Stay at ${fmtW(o.top)}</button>
       <button class="chip" data-act="reachPain" data-i="${i}" id="rp-${i}" aria-pressed="${!!state.active.items[o.x].pain}">😣 It hurt</button></div></div>`).join("")}
     <span class="hint" style="font-size:12.5px">Stepping back keeps your reps in the range that builds muscle and lets you add weight again with good form. “It hurt” makes next time about 15% lighter.</span>
@@ -3345,7 +3358,7 @@ function finishSession(){
   // PRs against everything before this workout
   const { prs, prk } = sessionPRs(a.items);
   const wasDue = blockInfo().due;
-  const sess = { id:a.id, dayId:a.dayId, dayName:a.dayName, start:a.start, end:Date.now(), ...(a.ready ? { ready:a.ready } : {}), items:a.items.map(it => it.target ? { ...it, target:{ w:it.target.w, reps:it.target.reps, kind:it.target.kind, ...(it.target.flag ? { flag:it.target.flag } : {}) } } : it), prs, prk };
+  const sess = { id:a.id, dayId:a.dayId, dayName:a.dayName, start:a.start, end:Date.now(), ...(a.ready ? { ready:a.ready } : {}), items:a.items.map(it => it.target ? { ...it, target:{ w:it.target.w, reps:it.target.reps, kind:it.target.kind, ...(it.target.flag ? { flag:it.target.flag } : {}), ...(it.target.from != null ? { from:it.target.from, fromReps:it.target.fromReps } : {}) } } : it), prs, prk };
   state.sessions.push(sess); state.active = null; state.timer = null;
   summary = { ...sess, blockDone: !wasDue && blockInfo().due ? state.block.n : 0 };
   save(); askPersist(); render(); window.scrollTo(0,0);
