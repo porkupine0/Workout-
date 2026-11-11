@@ -864,7 +864,8 @@ function exposures(exId){
 function exposuresRaw(exId){
   const ex = exById(exId), out = [], prior = []; let bestScore = 0, bestDay = 0;
   state.sessions.forEach(s => { const it = s.items.find(x => x.ex === exId); if (!it) return; const work = it.sets.filter(x => x.done && x.tag !== "W"); if (!work.length) return;
-    const score = perfScore(work, ex), day = dayScore(ex, work);
+    // a build-week 4th set doesn't count as "more total work" for progress, so it can't hide a stall
+    const score = perfScore(work, ex), day = dayScore(ex, it.extra && work.length > 3 ? work.slice(0, -1) : work);
     let improved = !prior.length || score > bestScore * 1.005 || (ex.t !== "time" && day > bestDay);
     if (!improved){ const seen = []; improved = work.some(q => { const hit = setPRs(ex, q, prior.concat(seen)).length > 0; seen.push(q); return hit; }); }
     const pos = s.items.indexOf(it), inSS = it.ss || (pos > 0 && s.items[pos-1].ss), known = work.filter(x => x.rir != null);
@@ -1714,7 +1715,7 @@ function blockCard(){
   const rir = effortFor(I.week, b.weeks, b.intro), left = Math.max(1, b.weeks - I.done);
   return `<div class="panel" style="gap:8px"><div class="row"><b class="grow">Block ${b.n} · Week ${Math.min(I.week, b.weeks)} of ${b.weeks}</b><span class="hint num">${left === 1 ? "last week" : `refresh in ${left} weeks`}</span></div>
     <div class="pbar"><span style="width:${Math.min(100, I.done / b.weeks * 100)}%"></span></div>
-    <span class="hint">${I.intro ? "Learning week, which doubles as a deload: one set fewer per exercise. Stop 3–4 reps short of failure and find your weights." : I.week >= b.weeks ? "Last week of the block: take your working sets to 0–1 reps short of failure." : `This week: stop working sets ${rir[0]}–${rir[1]} reps short of failure.`}</span></div>`;
+    <span class="hint">${I.intro ? "Learning week, which doubles as a deload: one set fewer per exercise. Stop 3–4 reps short of failure and find your weights." : I.week >= b.weeks ? "Last week of the block: take your working sets to 0–1 reps short of failure. Next block starts with a learning week that doubles as your deload." : `This week: stop working sets ${rir[0]}–${rir[1]} reps short of failure.`}${!I.intro && b.weeks >= 4 && I.week >= 3 && state.buildOn !== false ? ` Build week: up to ${I.week >= 4 ? 2 : 1} exercise${I.week >= 4 ? "s" : ""} a day get${I.week >= 4 ? "" : "s"} a 4th set when they're still progressing.` : ""}</span></div>`;
 }
 
 function sessionView(){
@@ -1742,6 +1743,7 @@ function sessionView(){
       ${it.coachNote ? `<div class="notepre">🤖 ${esc(it.coachNote)}</div>` : ""}
       ${last ? `<div class="prev num">Last time (${agoTxt(last.at)}): ${last.sets.map(s=>fmtSet(s, ex.t)).join(", ")}${last.first ? ` · started ${SIDE[last.first].toLowerCase()}` : ""}</div>` : `<div class="prev">First time logging this one.</div>`}
       ${it.target ? targetLine(it, ex) : hint ? `<span class="hintup">${hint}</span>` : ""}
+      ${it.extra ? `<p class="hint" style="font-size:12.5px">📈 Build week: a 4th set, since this one's still progressing. If set 4 lands under ${it.lo || 8}, it goes back to 3 for the rest of the block.</p>` : ""}
       ${sideRow(it, ex, xi)}
       ${baseLikely(ex) && loaded(ex) && !(ex.id in state.base) ? `<p class="hint" style="font-size:12.5px">⚙️ This machine may add starting resistance (look for a sticker). Enter it once under Form tip, notes &amp; options, or put 0 if there isn't one.</p>` : ""}
       ${warmupHelp(it, ex, xi)}
@@ -1877,6 +1879,7 @@ function goalsBody(){
     <div class="gfield"><span class="gl">How long you've trained consistently</span>${chips("exp", EXPS)}</div>
     <div class="gfield"><span class="gl">Priority muscles</span><div class="chips">${LIFT_MUSCLES.map(m => `<button class="chip" data-act="prio" data-v="${m}" id="gp-${slug(m)}" aria-pressed="${g.priority.includes(m)}">${m}</button>`).join("")}</div>
       <p class="hint">Up to 3. They get a little more volume, a second day if needed, and go first in the workout, where lifts gain the most (Nunes 2021).</p></div>
+    <div class="gfield"><span class="gl">Build weeks</span><div class="row" style="gap:8px;align-items:center"><span class="hint grow">From week 3, a 4th set on 1–2 exercises a day (priority muscles first) while they're still progressing.</span><button class="chip" data-act="buildToggle" id="buildToggle" aria-pressed="${state.buildOn !== false}">${state.buildOn !== false ? "On" : "Off"}</button></div></div>
     <div class="gfield"><span class="gl">Where you train</span>${chips("where", WHERES)}</div>
     <details class="gfield"><summary class="gl" style="cursor:pointer">My gym's equipment <span class="hint" style="font-weight:400">(${GEAR.length - g.noGear.length} of ${GEAR.length})</span></summary>
       <p class="hint" style="margin:6px 0">Untick anything your gym doesn't have. Plans and swaps skip exercises that need it.</p>
@@ -3295,6 +3298,33 @@ function buildSessionItem(tpl, ctx, exactSets){
   const sets = Array.from({length:n}, (_,k) => ({ w: t.w !== "" ? String(t.w) : (t.kind === "new" ? "" : lw), r: t.reps[k] !== "" && t.reps[k] != null ? String(t.reps[k]) : "", done:false }));
   return { ex:tpl.ex, sets, targetSets:n, lo:tpl.lo, hi:tpl.hi, rest:tpl.rest || DEFAULTS[klass(ex)].rest, ss:!!tpl.ss, target:{ w:t.w, reps:t.reps, kind:t.kind, why:t.why, ...(t.flag ? { flag:t.flag } : {}), ...(t.from != null ? { from:t.from, fromReps:t.fromReps } : {}) } };
 }
+// ---------- Build weeks ----------
+// Planned volume: from week 3 of a block (4+ weeks long), one exercise a day gets a 4th set; from week 4, two.
+// Priority muscles go first, then the earliest exercises of the day; main barbell lifts stay at 3. An exercise only
+// gets one if it's still progressing, set 3 last time stayed in your range, nothing hurt, and you're recovered.
+// A 4th set that falls below the range ends the extra set for that exercise for the rest of the block.
+function buildCount(ctx){
+  if (state.buildOn === false || ctx.intro || ctx.lighter || ctx.light || ctx.ready === "rough" || ctx.ready === "off" || (ctx.weeks || 0) < 4) return 0;
+  return ctx.week >= 4 ? 2 : ctx.week >= 3 ? 1 : 0;
+}
+function extraOK(tpl, item){
+  const ex = exById(tpl.ex), lo = tpl.lo || 8;
+  if (ex.t === "time" || klass(ex) === "heavy" || (tpl.sets || 3) !== 3 || !LIFT_MUSCLES.includes(ex.m)) return false;
+  if (!item || !item.target || item.target.kind === "new" || item.target.kind === "down" || item.target.flag) return false;
+  const H = exposures(tpl.ex).filter(h => !h.light), L = H[H.length - 1];
+  if (!L || L.pain || L.back || L.work.length < 3 || (num(L.work[2].r) || 0) < lo + 1) return false;
+  if (H.length >= 2 && L.score < H[H.length - 2].score * .97) return false;
+  const since = state.block ? state.block.start : 0;
+  return !H.some(h => h.at >= since && h.work.length >= 4 && (num(h.work[3].r) || 0) < lo);
+}
+function addBuildSets(a, day, ctx){
+  const n = buildCount(ctx); if (!n) return;
+  const prio = new Set(state.goals.priority || []), P = i => prio.has(exById(day.items[i].ex).m) ? 1 : 0;
+  const pick = day.items.map((t, i) => i).filter(i => extraOK(day.items[i], a.items[i])).sort((x, y) => P(y) - P(x) || x - y).slice(0, n);
+  pick.forEach(i => { const tpl = day.items[i], it = buildSessionItem({ ...tpl, sets:4 }, ctx, true), r = it.target.reps, lo = tpl.lo || 8;
+    if (r.length === 4 && r[2] !== "" && r[2] != null){ r[3] = Math.max(lo, (num(r[2]) || lo) - 1); it.sets[3].r = String(r[3]); }
+    it.extra = true; a.items[i] = it; });
+}
 function savedDay(id){ const t = state.saved.find(z => z.id === id); return t ? { id:"saved:" + t.id, name:t.name, items:t.items.map(it => ({ ...it })), savedId:t.id } : null; }
 function startSession(day, rd){
   const ctx = sessionCtx(day ? day.id : null);
@@ -3303,6 +3333,7 @@ function startSession(day, rd){
   state.active = { id:uid(), dayId: day ? day.id : null, dayName: day ? day.name : "Workout", start:Date.now(), items: day ? day.items.map(it => buildSessionItem(it, ctx)) : [], lastDone:null,
     wk: day ? { week:ctx.week, weeks:ctx.weeks, intro:ctx.intro, rir:ctx.rir } : null, ready: rd || null, ...(ctx.light ? { light:true } : {}) };
   if (day && day.savedId) state.active.savedId = day.savedId;
+  if (day && !day.savedId) addBuildSets(state.active, day, ctx);
   if (day) pickCalibration(state.active, ctx, rd);
   state.tab = "train"; review = null; save(); render(); window.scrollTo(0,0); keepAwake();
 }
@@ -3434,6 +3465,7 @@ document.addEventListener("click", e => {
     case "lightEnd": state.light.until = Date.now(); save(); render(); break;
     case "fatigueLater": state.fatigueSnooze = Date.now() + 5*dayMs; save(); render(); break;
     case "calGuess": { const it = state.active.items[x], s = it.sets[it.sets.length - 1]; s.guess = +b.dataset.v; save(); render(); break; }
+    case "buildToggle": state.buildOn = state.buildOn === false; save(); render(); break;
     case "calToggle": state.calOn = state.calOn === false; save(); render(); break;
     case "rdStart": { const r = ready; ready = null; startSession(r.saved ? savedDay(r.saved) : state.days[r.i], { ...r.a, level:readyLevel(r.a) }); break; }
     case "askReady": state.askReady = b.dataset.v === "1"; save(); render(); break;
