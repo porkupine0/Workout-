@@ -667,11 +667,16 @@ let picker = null, toast = null, toastT = null, summary = null, confirmKey = nul
 // Fills in what older saves don't have. The current block starts at the first workout of today's program days.
 // lb ⇄ kg: every stored weight is converted and rounded to the nearest 0.5 (waist in ⇄ cm to 0.1)
 function convertUnits(to){
-  const f = to === "kg" ? 1 / LB : LB, cw = v => { if (v === "" || v == null || isNaN(parseFloat(v))) return v; const x = Math.round(parseFloat(v) * f * 2) / 2; return typeof v === "string" ? String(x) : x; };
-  const item = it => { (it.sets || []).forEach(q => { q.w = cw(q.w); }); if (it.target){ it.target.w = cw(it.target.w); if (it.target.from != null) it.target.from = cw(it.target.from); } if (it.back && it.back.w !== "") it.back.w = cw(it.back.w); };
-  state.sessions.forEach(x => x.items.forEach(item)); if (state.active) state.active.items.forEach(item);
-  ["base","steps"].forEach(k => Object.keys(state[k] || {}).forEach(id => { state[k][id] = cw(state[k][id]); }));
-  Object.values((state.body && state.body.log) || {}).forEach(e => { if (e.w != null) e.w = Math.round(e.w * f * 10) / 10; if (e.waist != null) e.waist = Math.round(e.waist * (to === "kg" ? 2.54 : 1 / 2.54) * 10) / 10; });
+  // each value remembers what it was first logged as, so switching back gives the exact original (lossless)
+  const from = state.units, f = to === "kg" ? 1 / LB : LB, O = state.unitOrig || (state.unitOrig = {});
+  const cv = (obj, key, path, step, mul) => { const v = obj[key]; if (v === "" || v == null || isNaN(parseFloat(v))) return;
+    const o = O[path]; if (o && o.u === to){ obj[key] = typeof v === "string" ? String(o.v) : +o.v; delete O[path]; return; }
+    if (!o) O[path] = { u:from, v:typeof v === "string" ? v : +v };
+    const x = Math.round(parseFloat(v) * (mul || f) / step) * step; obj[key] = typeof v === "string" ? String(+x.toFixed(2)) : +x.toFixed(2); };
+  const item = (it, p) => { (it.sets || []).forEach((q, k) => cv(q, "w", `${p}.${k}`, .5)); if (it.target){ cv(it.target, "w", p + ".t", .5); if (it.target.from != null) cv(it.target, "from", p + ".f", .5); } if (it.back && it.back.w !== "") cv(it.back, "w", p + ".b", .5); };
+  state.sessions.forEach(x => x.items.forEach((it, i) => item(it, `s.${x.id}.${i}`))); if (state.active) state.active.items.forEach((it, i) => item(it, `a.${state.active.id}.${i}`));
+  ["base","steps"].forEach(k => Object.keys(state[k] || {}).forEach(id => cv(state[k], id, `${k}.${id}`, .25)));
+  Object.entries((state.body && state.body.log) || {}).forEach(([d, e]) => { cv(e, "w", "bw." + d, .1); cv(e, "waist", "wa." + d, .1, to === "kg" ? 2.54 : 1 / 2.54); });
 }
 function migrate(){
   cleanState(state);
@@ -703,7 +708,27 @@ function migrate(){
 // Names typed in, restored from a backup or returned by Claude can't carry markup: angle brackets, quotes and
 // ampersands are stripped before they're stored, so nothing in a name can run as code.
 const cleanName = (v, max = 80) => String(v == null ? "" : v).replace(/[<>&"'`\\]/g, "").replace(/\s+/g, " ").trim().slice(0, max);
+// every string anywhere in the data loses angle brackets (nothing the app stores needs them), and fields the app
+// treats as numbers or fixed choices are forced to be one
+function stripDeep(o, depth = 0){
+  if (depth > 12 || o == null || typeof o !== "object") return o;
+  for (const k of Object.keys(o)){ const v = o[k]; if (typeof v === "string"){ if (/[<>]/.test(v)) o[k] = v.replace(/[<>]/g, ""); } else if (v && typeof v === "object") stripDeep(v, depth + 1); }
+  return o;
+}
+const numOr = (v, d) => { const n = +v; return isFinite(n) ? n : d; };
 function cleanState(st){
+  stripDeep(st);
+  if (st.units !== "kg") st.units = "lb";
+  if (st.bar != null) st.bar = numOr(st.bar, st.units === "kg" ? 20 : 45);
+  const tplItem = it => { it.sets = Math.max(1, Math.min(10, Math.round(numOr(it.sets, 3)))); it.lo = Math.max(1, Math.round(numOr(it.lo, 8))); it.hi = Math.max(it.lo, Math.round(numOr(it.hi, 12))); it.rest = Math.max(0, Math.min(600, Math.round(numOr(it.rest, 90)))); };
+  (st.days || []).forEach(d => (d.items || []).forEach(tplItem));
+  (st.saved || []).forEach(d => (d.items || []).forEach(tplItem));
+  [st.block, ...(st.blocks || [])].forEach(b => { if (b && typeof b === "object"){ b.n = Math.max(1, Math.round(numOr(b.n, 1))); b.weeks = Math.max(1, Math.min(16, Math.round(numOr(b.weeks, 6)))); b.start = numOr(b.start, Date.now()); } });
+  if (st.goals && typeof st.goals === "object") st.goals.minutes = numOr(st.goals.minutes, 60);
+  const setFix = q => { if (q && typeof q === "object"){ ["w","r","rl","rr"].forEach(k => { if (q[k] != null) q[k] = String(q[k]).replace(/[^\d.,:]/g, ""); }); if (q.rir != null) q.rir = numOr(q.rir, null); if (q.rest != null) q.rest = numOr(q.rest, null); } };
+  const itemFix = it => { (it.sets || []).forEach(setFix); ["lo","hi","rest","targetSets"].forEach(k => { if (it[k] != null) it[k] = numOr(it[k], undefined); });
+    if (it.target && typeof it.target === "object"){ if (it.target.w !== "") it.target.w = numOr(it.target.w, ""); if (Array.isArray(it.target.reps)) it.target.reps = it.target.reps.map(r => typeof r === "number" ? r : String(r).replace(/[^\d.:]/g, "")); } };
+  (st.sessions || []).forEach(x => (x.items || []).forEach(itemFix)); if (st.active && Array.isArray(st.active.items)) st.active.items.forEach(itemFix);
   (st.custom || []).forEach(c => { c.n = cleanName(c.n) || "Custom exercise"; ["m","e","t","p","k"].forEach(k => { if (c[k] != null) c[k] = cleanName(c[k], 40); }); if (c.tip != null) c.tip = cleanName(c.tip, 300); });
   (st.days || []).forEach(d => { d.name = cleanName(d.name, 40); });
   (st.saved || []).forEach(d => { if (d.name != null) d.name = cleanName(d.name, 40); });
@@ -727,7 +752,7 @@ function snapDo(mode, fn){ return snapDb().then(db => new Promise((res, rej) => 
 let snapList = null;   // [{ key, at, n, why }]
 function snapSummary(st){ const S = st.sessions || []; return { n:S.length, from:S.length ? S[0].end : null, to:S.length ? S[S.length-1].end : null }; }
 async function takeSnap(why){
-  try{ const key = why === "daily" ? "d-" + new Date().toISOString().slice(0, 10) : "r-" + Date.now();
+  try{ const key = why === "daily" ? "d-" + dkey(Date.now()) : "r-" + Date.now();
     await snapDo("readwrite", st => st.put({ at:Date.now(), why, data:JSON.stringify(state), ...snapSummary(state) }, key));
     const keys = (await snapDo("readonly", st => st.getAllKeys())).sort(), daily = keys.filter(k => k.startsWith("d-")), other = keys.filter(k => k.startsWith("r-"));
     await snapDo("readwrite", st => { daily.slice(0, Math.max(0, daily.length - 10)).concat(other.slice(0, Math.max(0, other.length - 3))).forEach(k => st.delete(k)); return null; });
@@ -737,8 +762,8 @@ async function listSnaps(){ try{ const keys = await snapDo("readonly", st => st.
   snapList = keys.map((k, i) => ({ key:k, at:vals[i].at, n:vals[i].n, why:vals[i].why })).sort((a, b) => b.at - a.at); }catch(e){ snapList = []; } render(); }
 async function restoreSnap(key){ try{ const v = await snapDo("readonly", st => st.get(key)); if (!v) return; await takeSnap("before-restore");
   state = { ...fresh(), ...JSON.parse(v.data), timer:null, tab:"program" }; migrate(); saveNow(); snapList = null; showToast(`Back to your data from ${new Date(v.at).toLocaleDateString()} (${plural(v.n, "workout")}).`); render(); }catch(e){ showToast("Couldn't open that snapshot."); render(); } }
-function dailySnap(){ try{ if (localStorage.getItem("iron-log-snap-day") === new Date().toISOString().slice(0, 10) || !(state.sessions.length || state.days.length)) return;
-  localStorage.setItem("iron-log-snap-day", new Date().toISOString().slice(0, 10)); takeSnap("daily"); }catch(e){} }
+function dailySnap(){ try{ if (localStorage.getItem("iron-log-snap-day") === dkey(Date.now()) || !(state.sessions.length || state.days.length)) return;
+  localStorage.setItem("iron-log-snap-day", dkey(Date.now())); takeSnap("daily"); }catch(e){} }
 const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const plural = (n, w) => `${n} ${w}${n===1?"":"s"}`;
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,6);
@@ -834,7 +859,7 @@ function sessionPRs(items, before){
 }
 function volumeOf(sess){ let v = 0; sess.items.forEach(it => { if (exById(it.ex).t === "time") return; it.sets.forEach(s => { if (s.done && s.tag !== "W"){ const w = num(s.w), r = num(s.r); if (w && r) v += w*r; } }); }); return Math.round(v); }
 function setsOf(sess){ return sess.items.reduce((a,it)=>a+it.sets.filter(s=>s.done && s.tag !== "W").length,0); }
-function fmtSet(s, t){ const tg = s.tag ? `${s.tag} ` : ""; const rr = s.rir != null ? ` @${s.rir>=4?"4+":s.rir}` : ""; if (t === "time") return tg + fmtTime(parseTime(s.r)||0); const w = num(s.w); return `${tg}${w ? w : "BW"}×${s.r||0}${rr}`; }
+function fmtSet(s, t){ const tg = s.tag ? `${s.tag} ` : ""; const rr = s.rir != null ? ` @${s.rir>=4?"4+":s.rir}` : ""; if (t === "time") return tg + fmtTime(parseTime(s.r)||0); const w = num(s.w), reps = s.rl != null && s.rr != null && String(s.rl) !== String(s.rr) ? `${s.rl}L/${s.rr}R` : (s.r || 0); return `${tg}${w ? w : "BW"}×${reps}${rr}`; }
 function overloadHint(item){
   const ex = exById(item.ex), last = lastPerf(item.ex);
   if (!last || ex.t === "time" || !item.hi) return "";
@@ -1058,7 +1083,7 @@ function targetFor(tpl, ctx){
   const allow = k => k === 0 ? 0 : Math.max(2 * k, Math.min(usual[Math.min(k, usual.length - 1)] || 0, Math.ceil(hi * .25) * k));
   // later sets may dip one rep under the range: that's normal fatigue, and the "went heavy" check allows it too
   const readyAt = h => topR[0] >= h && topR.every((r, k) => r >= lo - (k ? 1 : 0)) && sumR >= topR.reduce((t, _, k) => t + Math.max(lo, h - allow(k)), 0), ready = readyAt(hi);
-  const withDrop = r => drop.map(d => Math.max(lo, r - d));
+  const withDrop = r => drop.map((d, k) => Math.max(k ? lo - 1 : lo, r - d));   // later sets follow your usual drop, down to one under the range
   if (!W){
     if (ctx.intro) return fill("", Math.max(1, Math.min(...topR) - 2), "deload", "Learning week: a couple of reps short of last time.");
     if (ready) return fill("", hi, "up", `You hit ${hi} on your first set ${ago} and held up after. Add weight (a belt or dumbbell), slow the lowering to 3 seconds, or try a harder version.`);
@@ -3493,7 +3518,7 @@ let oreach = null;
 function usualDrop(exId){
   const D = []; exposures(exId).filter(h => !h.light).slice(-3).forEach(h => { const ws = h.work.filter(q => q.tag !== "D"), w0 = num(ws[0] && ws[0].w) || 0, same = ws.filter(q => (num(q.w) || 0) === w0).map(q => num(q.r) || 0);
     same.forEach((r, k) => { if (k) (D[k] = D[k] || []).push(same[0] - r); }); });
-  return k => k === 0 ? 0 : D[k] && D[k].length ? Math.max(k, avg(D[k])) : 2 * k;
+  return k => k === 0 ? 0 : D[k] && D[k].length ? Math.max(k, avg(D[k])) : 1.5 * k;
 }
 const tooShort = (sets, lo, ud) => { const r = sets.map(q => num(q.r) || 0), u = ud || (k => 2 * k); return r[0] < lo || r.some((v, k) => k && v < lo && v < r[0] - u(k) - 1); };
 function overreach(a){
@@ -3570,7 +3595,7 @@ function finishSession(){
   const sess = { id:a.id, dayId:a.dayId, dayName:a.dayName, start:a.start, end:Date.now(), ...(a.ready ? { ready:a.ready } : {}), items:a.items.map(it => it.target ? { ...it, target:{ w:it.target.w, reps:it.target.reps, kind:it.target.kind, ...(it.target.flag ? { flag:it.target.flag } : {}), ...(it.target.from != null ? { from:it.target.from, fromReps:it.target.fromReps } : {}) } } : it), prs, prk };
   state.sessions.push(sess); state.active = null; state.timer = null;
   summary = { ...sess, blockDone: !wasDue && blockInfo().due ? state.block.n : 0 };
-  save(); askPersist(); render(); window.scrollTo(0,0);
+  saveNow(); askPersist(); render(); window.scrollTo(0,0);
 }
 
 document.addEventListener("pointerdown", unlockAudio, { passive:true });

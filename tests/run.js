@@ -49,6 +49,38 @@ const ok = (cond, name, detail) => { if (cond){ passes++; } else { fails++; cons
   // security: names can't carry markup
   const xss = await p.evaluate(() => { const st = cleanState({ custom:[{ id:'c1', n:'<img src=x onerror=alert(1)>' }], days:[], sessions:[] }); return st.custom[0].n; });
   ok(!/[<>]/.test(xss), 'custom names are cleaned', xss);
+
+  // effort cap: heavy barbell lifts stay 1-2 reps short in the hardest week
+  const cap = await p.evaluate(() => { const F = lib().find(e => e.n === 'Back Squat'); state.sessions = [{ id:'h', dayId:'d1', start:Date.now()-8*864e5, end:Date.now()-7*864e5, items:[{ ex:F.id, sets:[{w:'225',r:'8',done:true},{w:'225',r:'7',done:true},{w:'225',r:'6',done:true}] }] }]; expoCache.key = 'x';
+    const a = targetFor({ ex:F.id, sets:3, lo:5, hi:8 }, { dayId:'d1', week:5, weeks:5, rir:[0,1] }), b = targetFor({ ex:F.id, sets:3, lo:5, hi:8 }, { dayId:'d1', week:5, weeks:5, rir:[1,2] }); return [a.reps[0], b.reps[0]]; });
+  ok(cap[0] === cap[1], 'heavy lifts ignore 0-1 RIR', cap);
+  // lb -> kg -> lb is exact
+  const rt = await p.evaluate(() => { const F = lib().find(e => e.n === 'Back Squat'); state.units = 'lb'; state.unitOrig = {}; state.sessions = [{ id:'u', dayId:'d1', start:1, end:2, items:[{ ex:F.id, sets:[{ w:'50', r:'8', done:true }, { w:'227.5', r:'8', done:true }], target:{ w:50, reps:[8] } }] }];
+    state.body.log['2026-01-01'] = { w:181.3, waist:33.5 }; convertUnits('kg'); state.units = 'kg'; const mid = state.sessions[0].items[0].sets[0].w; convertUnits('lb'); state.units = 'lb';
+    return { mid, back:state.sessions[0].items[0].sets.map(q => q.w), t:state.sessions[0].items[0].target.w, body:state.body.log['2026-01-01'] }; });
+  ok(rt.back[0] === '50' && rt.back[1] === '227.5' && rt.t === 50 && rt.body.w === 181.3 && rt.body.waist === 33.5, 'unit round trip is lossless', JSON.stringify(rt));
+  // hostile backup: nothing in it can run
+  const hostile = await p.evaluate(async () => { window.__pwn = 0; const bad = '<img src=x onerror="window.__pwn++">';
+    await restoreFrom(JSON.stringify({ units:'lb' + bad, bar:bad, custom:[{ id:'c1', n:bad, m:'Chest', e:'MA', t:'reps' }], days:[{ id:'d', name:bad, items:[{ ex:'c1', sets:bad, lo:bad, hi:bad, rest:bad }] }],
+      block:{ n:bad, weeks:bad, start:Date.now() }, sessions:[{ id:'s', dayName:bad, start:1, end:Date.now(), items:[{ ex:'c1', sets:[{ w:bad, r:bad, done:true }], target:{ w:bad, reps:[bad], why:bad } }] }] }), 'program');
+    for (const t of ['train','body','program','history','progress']){ state.tab = t; render(); } await new Promise(r => setTimeout(r, 300)); return { pwn:window.__pwn, units:state.units }; });
+  ok(hostile.pwn === 0 && hostile.units === 'lb', 'hostile backup cannot run code', JSON.stringify(hostile));
+  // left/right: the set counts as the weaker side, history shows both
+  const lr = await p.evaluate(() => fmtSet({ w:'15', r:'9', rl:'11', rr:'9' }, 'reps'));
+  ok(lr === '15×11L/9R', 'left/right shown in history', lr);
+  // six lifter types x 10 weeks: no step-back box from normal fatigue, steady climb
+  for (const [policy, dropPer] of [['rir',1],['rir',1.5],['rir',2],['target',1],['target',1.5],['target',2]]){
+    const r = await p.evaluate(([policy, dropPer]) => {
+      const F = n => lib().find(e => e.n === n).id, W = 7*864e5, ex = exById(F('Chest-Supported Dumbbell Row')); let e1 = 100 * (1 + 13/30), boxes = 0, ws = [];
+      const realNow = Date.now; let now = realNow(); Date.now = () => now; state.units = 'lb'; state.sessions = []; state.light = null; state.calib = []; state.block = { id:'b', n:1, start:now, weeks:20, intro:false, scheme:0 };
+      for (let w = 0; w < 10; w++){ expoCache.key = 'x'; now += W;
+        const it = buildSessionItem({ ex:ex.id, sets:3, lo:8, hi:12, rest:90 }, { dayId:'d1', week:3, weeks:20, intro:false, rir:[1,2] }, true), wt = num(it.sets[0].w) || 100; ws.push(wt);
+        it.sets.forEach((s, k) => { const cap = Math.floor(30 * (e1 / wt - 1)) - Math.round(k * dropPer), tg = num(s.r) || 8; s.w = String(wt); s.r = String(Math.max(1, policy === 'target' ? Math.min(cap, tg) : cap - 1)); s.done = true; });
+        if (overreach({ items:[it] }).length) boxes++;
+        state.sessions.push({ id:'w'+w, dayId:'d1', start:now - 3600e3, end:now, items:[it] }); e1 *= 1.01; }
+      Date.now = realNow; return { boxes, ws }; }, [policy, dropPer]);
+    ok(r.boxes === 0 && r.ws.every((w, k) => !k || w >= r.ws[k-1]), `lifter ${policy}/${dropPer}: no bounce`, JSON.stringify(r));
+  }
   ok(errs.length === 0, 'no page errors', errs.join('\n'));
   console.log(`${passes} passed, ${fails} failed`); await b.close(); process.exit(fails ? 1 : 0);
 })();
