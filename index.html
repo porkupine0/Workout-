@@ -1009,6 +1009,15 @@ function targetFor(tpl, ctx){
     if (topR.every(r => r >= cap)) return fill(W, cap, "same", `You've outgrown ${fmtW(W)}, but ${fmtW(W + st)} is a ${jp}% jump. Keep doing ${cap}s here with a slow 3-second lowering, add a set, or swap to a cable or machine version where the weight goes up in smaller steps.`);
     return fill(W, topR.map(r => Math.min(cap, r + 1)), "same", `${fmtW(W + st)} would be a ${jp}% jump from ${fmtW(W)}. Earn it first: add a rep to each set, up to ${cap}.`);
   }
+  // Same reps on every set, inside the range: with normal rest, reps fall off when sets are close to failure, so flat reps
+  // mean the weight is light for you. Go up one step and keep the same reps (unless your last set was logged at 0–1 in reserve).
+  const lastRir = top[top.length - 1] && top[top.length - 1].rir;
+  if (nR >= 2 && topR.every(r => r === topR[0]) && topR[0] >= lo && topR[0] < hi && !(lastRir != null && lastRir + B <= 1) && !["rough","off"].includes(ctx.ready)){
+    const w = roundTo(W + st, gr);
+    if (w > W && st / (W + bs) <= .15){ const T = withDrop(topR[0]); return fill(w, T, "up", `Your reps didn't drop at all (${topR.join(", ")}), so ${fmtW(W)} is light for you. Up ${fmtW(w - W)}, same reps: aim for ${T.join(", ")}.`); }
+    const T = topR.map(r => Math.min(hi, r + 2));
+    return fill(W, T, "same", `Your reps didn't drop at all (${topR.join(", ")}), so there's room left, but ${fmtW(w)} would be a ${Math.round(st / (W + bs) * 100)}% jump. Two more reps per set first: ${T.join(", ")}.`);
+  }
   if (topR[0] < lo){
     const prev = H.length >= 2 ? H[H.length-2] : null, prevLow = prev && prev.work.some(s => (num(s.w) || 0) >= W && (num(s.r) || 0) < lo);
     if (prevLow || slipping){ const w = roundTo(W - st, gr); return fill(w, lo, "down", `Down to ${fmtW(w)}: you've been under ${lo} reps. Land in your ${lo}–${hi} range, then build back up.`); }
