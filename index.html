@@ -942,14 +942,19 @@ function targetFor(tpl, ctx){
   const W = Math.max(0, ...work.map(s => num(s.w) || 0));
   const top = W ? work.filter(s => (num(s.w) || 0) === W) : work, topR = top.map(s => num(s.r) || 0);
   const known = top.filter(s => s.rir != null), avgRir = known.length ? avg(known.map(s => s.rir)) : null;
-  // Ready to move up: the first set reached the top of the range, every set stayed in range, and the sets fell off by no more
-  // than about 2 reps per set (the normal fatigue drop with full rests). On 8–12: 12, 12, 8 and 12, 10, 8 qualify; 12, 10, 7
-  // and 11, 11, 11 don't.
-  const nR = topR.length, sumR = topR.reduce((a, b) => a + b, 0), readyAt = h => topR[0] >= h && topR.every(r => r >= lo) && sumR >= topR.reduce((t, _, k) => t + Math.max(lo, h - 2 * k), 0), ready = readyAt(hi);
   // your own set-to-set drop at one weight, from your last 3 workouts on this exercise (default 1 rep per set, at most 3)
-  const drop = (() => { const D = []; H.slice(-3).forEach(h => { const ws = h.work.filter(q => q.tag !== "D"), w0 = num(ws[0] && ws[0].w) || 0, same = ws.filter(q => (num(q.w) || 0) === w0).map(q => num(q.r) || 0);
+  const dropFrom = L => { const D = []; L.forEach(h => { const ws = h.work.filter(q => q.tag !== "D"), w0 = num(ws[0] && ws[0].w) || 0, same = ws.filter(q => (num(q.w) || 0) === w0).map(q => num(q.r) || 0);
       if (same.length >= 2) same.forEach((r, k) => { if (k) (D[k] = D[k] || []).push(same[0] - r); }); });
-    return Array.from({ length:n }, (_, k) => k === 0 ? 0 : Math.max(0, Math.min(3 * k, Math.round(D[Math.min(k, D.length - 1)] && D[Math.min(k, D.length - 1)].length ? avg(D[Math.min(k, D.length - 1)]) * (k >= D.length ? k / (D.length - 1) : 1) : k)))); })();
+    return Array.from({ length:Math.max(n, 3) }, (_, k) => { if (!k) return 0; const m = Math.min(k, D.length - 1), v = D[m] && D[m].length ? avg(D[m]) * (k > m ? k / m : 1) : null; return v == null ? null : Math.max(0, Math.min(3 * k, Math.round(v))); }); };
+  const usual = dropFrom(H.filter(h => h !== ref).slice(-3));   // judging last time against your earlier workouts, not itself
+  const drop = dropFrom(H.slice(-3)).slice(0, n).map((v, k) => v == null ? k : v);
+  // Ready to move up: the first set reached the top of the range, every set stayed in range, and the later sets fell off by no
+  // more than your normal fatigue drop. That's about 2 reps per set by default, or your own usual drop on this exercise when
+  // it's bigger (curls often lose 3+), capped at a quarter of the top of the range per set. The drop is largest from set 1 to
+  // set 2 and shrinks after, and it grows with shorter rests (Senna 2011; Nuzzo 2024).
+  const nR = topR.length, sumR = topR.reduce((a, b) => a + b, 0);
+  const allow = k => k === 0 ? 0 : Math.max(2 * k, Math.min(usual[Math.min(k, usual.length - 1)] || 0, Math.ceil(hi * .25) * k));
+  const readyAt = h => topR[0] >= h && topR.every(r => r >= lo) && sumR >= topR.reduce((t, _, k) => t + Math.max(lo, h - allow(k)), 0), ready = readyAt(hi);
   const withDrop = r => drop.map(d => Math.max(lo, r - d));
   if (!W){
     if (ctx.intro) return fill("", Math.max(1, Math.min(...topR) - 2), "deload", "Learning week: a couple of reps short of last time.");
