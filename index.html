@@ -869,7 +869,7 @@ function exposuresRaw(exId){
     const pos = s.items.indexOf(it), inSS = it.ss || (pos > 0 && s.items[pos-1].ss), known = work.filter(x => x.rir != null);
     const rs = inSS ? [] : it.sets.filter((x, k) => k > 0 && x.done && x.tag !== "W" && x.rest != null && x.rest > 0).map(x => x.rest);
     out.push({ at:s.end, dayId:s.dayId, work, score, day, improved, pos, of:s.items.length, rest:rs.length ? avg(rs) : null, restT:it.rest || null,
-      rir:known.length ? avg(known.map(x => x.rir)) : null, pre:pos > 0 && s.items[pos-1].ss ? { ex:s.items[pos-1].ex, ov:overlapOf(exById(s.items[pos-1].ex), ex).v } : null, bad:!!((s.ready && BAD_DAY.has(s.ready.level)) || s.light), light:!!s.light, flag:(it.target && it.target.flag) || null });
+      back:it.back || null, pain:!!it.pain, rir:known.length ? avg(known.map(x => x.rir)) : null, pre:pos > 0 && s.items[pos-1].ss ? { ex:s.items[pos-1].ex, ov:overlapOf(exById(s.items[pos-1].ex), ex).v } : null, bad:!!((s.ready && BAD_DAY.has(s.ready.level)) || s.light || it.pain), light:!!s.light, flag:(it.target && it.target.flag) || null });
     prior.push(...work); bestScore = Math.max(bestScore, score); bestDay = Math.max(bestDay, day); });
   return out;
 }
@@ -930,6 +930,16 @@ function targetFor(tpl, ctx){
   }
   const tried = f => L3.some(h => h.flag === f);   // each fix is offered once per stall before moving to the next
   const B = calBias();   // calibration: how many more reps you really have than you log
+  // you flagged pain on this last time: about 15% lighter, smooth reps, stop if it hurts
+  if (latest.pain && !ctx.light){
+    const lw = latest.work, A = isAssisted(ex), Wp = lw.some(q => num(q.w) > 0) ? (A ? Math.min(...lw.map(q => num(q.w) || 0)) : Math.max(...lw.map(q => num(q.w) || 0))) : 0, bsP = baseOf(ex), gp = granFor(ex);
+    const w = !Wp ? "" : A ? roundTo(Wp * 1.15 + 5, gp) : Math.max(0, roundTo((Wp + bsP) * .85 - bsP, gp));
+    return fill(w, Math.min(hi, lo + 2), "deload", `You flagged pain on this ${ago}. About 15% ${A ? "more help" : "lighter"}, slow and smooth, and stop the set if it hurts. If it still hurts, swap it (⇄) or skip it this week.`);
+  }
+  // you went heavier than your target, dropped below the range, and chose to step back
+  if (latest.back && latest.back.w !== ""){
+    const bk = latest.back; return fill(bk.w, bk.reps, "down", `You went up to ${fmtW(Math.max(...latest.work.map(q => num(q.w) || 0)))} ${ago} and dropped below ${lo}. Back to ${fmtW(bk.w)} to own the range first, then build up from there.`);
+  }
   if (ctx.light){
     const lw = ref.work, isT = ex.t === "time", A = isAssisted(ex), Wl = lw.some(q => num(q.w) > 0) ? (A ? Math.min(...lw.map(q => num(q.w) || 0)) : Math.max(...lw.map(q => num(q.w) || 0))) : "";
     if (isT){ const T = Math.max(...lw.map(q => parseTime(q.r) || 0)); return fill(Wl, fmtTime(Math.max(lo, Math.round(T * .8 / 5) * 5)), "deload", "Lighter week: hold about 80% of your usual time."); }
@@ -1703,6 +1713,7 @@ function sessionView(){
         ${loaded(ex) && ex.t !== "time" && !isAssisted(ex) ? `<label class="hint" for="base-${xi}" style="font-weight:700">Starting resistance (${U()})</label>
         <input type="text" inputmode="decimal" id="base-${xi}" data-base="${esc(it.ex)}" value="${baseOf(ex) || ""}" placeholder="${baseLikely(ex) ? "Check the machine's sticker, e.g. 75" : "0 for most exercises"}" autocomplete="off" style="max-width:220px">
         <span class="hint" style="font-size:12.5px">What the machine adds before any plates. Keep logging plates only; the app adds this for jumps, back-offs and estimated 1RM.</span>` : ""}
+        <button class="small" data-act="painToggle" data-x="${xi}" id="pain-${xi}">${it.pain ? "😣 Marked: this hurt today (tap to undo)" : "😣 This hurt today"}</button>
         <button class="small" data-act="uniToggle" data-x="${xi}" id="uni-${xi}">${isUni(ex) ? "↔ One side at a time: on" : "↔ Doing it one side at a time?"}</button>
         ${xi < a.items.length-1 ? `<button class="small" data-act="sxSS" data-x="${xi}" id="ss-${xi}">${it.ss?"🔗 Unlink superset":`🔗 Superset with ${esc(exById(a.items[xi+1].ex).n)}`}</button>` : ""}
         <p class="hint" style="font-size:12.5px">Tap a set number to tag it: W warm-up (not counted), D drop set, F to failure.</p>
@@ -1719,8 +1730,8 @@ function sessionView(){
     ${items || `<p class="hint">No exercises yet. Add some below.</p>`}
     <button data-act="pick" data-target="session" id="addExSess">+ Add exercise</button>
     ${aiKey ? `<button data-act="coSess" id="coSess">🤖 Ask the coach</button>` : ""}
-    ${checkPanel()}
-    <button class="primary" data-act="finish" id="finish">Finish workout</button>
+    ${checkPanel()}${reachPanel()}
+    ${oreach ? "" : `<button class="primary" data-act="finish" id="finish">Finish workout</button>`}
     <button class="ghost small danger" data-act="discard" id="discard">${confirmKey==="discard"?"Tap again to discard this workout":"Discard workout"}</button>
     <p class="hint">Tap ✓ after each set and the rest timer starts on its own. Everything saves as you go, so it's safe to close the app mid-workout.</p>`;
 }
@@ -1904,7 +1915,7 @@ function historyView(){
   if (!state.sessions.length) return `<div class="panel"><h2>No workouts yet</h2><p class="hint">Finished workouts show up here with every set you did.</p>${aiKey ? `<button data-act="plOpen" id="plOpenH">📷 Log a workout from a photo</button>` : ""}</div>`;
   const list = [...state.sessions].map((s,i)=>[s,i]).reverse().map(([s,i]) => `<div class="sess"><div class="sh"><b>${esc(s.dayName)}</b><span class="sm">${fmtDate(s.end)}</span></div>
     <span class="sm num">${fmtTime((s.end-s.start)/1000)} · ${plural(setsOf(s),"set")} · ${volumeOf(s).toLocaleString()} ${U()}${s.prs&&s.prs.length?` · 🏆 ${plural(s.prs.length,"PR")}`:""}${s.ready && s.ready.level !== "normal" ? ` · felt ${READY_WORD[s.ready.level] || s.ready.level}` : ""}${s.from === "photo" ? " · 📷 from a photo" : ""}</span>
-    <details><summary>Details</summary>${s.items.filter(it=>it.sets.some(x=>x.done)).map(it=>{ const ex = exById(it.ex); return `<div class="ex num"><b>${esc(ex.n)}:</b> ${it.sets.filter(x=>x.done).map(x=>fmtSet(x, ex.t)).join(", ")}${it.first ? ` · started ${SIDE[it.first].toLowerCase()}` : ""}</div>`; }).join("") || `<div class="ex hint">No completed sets.</div>`}
+    <details><summary>Details</summary>${s.items.map((it, ii) => ({ it, ii })).filter(({ it }) => it.sets.some(x=>x.done)).map(({ it, ii })=>{ const ex = exById(it.ex); return `<div class="ex num"><b>${esc(ex.n)}:</b> ${it.sets.filter(x=>x.done).map(x=>fmtSet(x, ex.t)).join(", ")}${it.first ? ` · started ${SIDE[it.first].toLowerCase()}` : ""} <button class="chip" style="padding:2px 8px;font-size:12px" data-act="histPain" data-sid="${esc(s.id)}" data-i="${ii}" id="hp-${esc(s.id)}-${ii}" aria-pressed="${!!it.pain}">😣 ${it.pain ? "Hurt" : "Hurt?"}</button></div>`; }).join("") || `<div class="ex hint">No completed sets.</div>`}
       <button class="small danger" style="margin-top:6px" data-act="delSess" data-i="${i}" id="dels-${i}">${confirmKey==="dels"+i?"Tap again to delete":"Delete this workout"}</button></details></div>`).join("");
   return `<div class="panel"><div class="row"><h2 class="grow">History</h2><span class="hint num">${plural(state.sessions.length,"workout")}</span></div>${aiKey ? `<button class="small" data-act="plOpen" id="plOpenH">📷 Log a past workout from a photo</button>` : ""}${list}</div>`;
 }
@@ -2867,6 +2878,7 @@ function bodyText(){
     const f = P[0], l = P[P.length-1]; out.push(`Progress photos (${pose}): ${pose === "front" ? "shoulder" : "upper-back"}-to-waist width ratio ${l.a.m.taper.toFixed(2)} on ${enDate(l.at)}${P.length >= 2 ? `, from ${f.a.m.taper.toFixed(2)} on ${enDate(f.at)} (${pct((l.a.m.taper - f.a.m.taper) / f.a.m.taper)})` : ""}.`); });
   return out.join(" ");
 }
+function painText(){ const L = []; state.sessions.slice(-30).forEach(x => x.items.forEach(it => { if (it.pain) L.push(`${exById(it.ex).n} (${enDate(x.end)})`); })); return L.length ? `They flagged pain on: ${L.join(", ")}. Treat these with care: lighter, a different variation, or leave them out.` : ""; }
 function feelText(A){
   const ids = [...new Set(A.ex.map(r => r.id).concat(Object.keys(state.notes || {})))];
   const L = ids.map(id => { const r = state.rate[id] || {}, n = (state.notes || {})[id]; if (!r.v && !r.felt && !n) return "";
@@ -2892,7 +2904,7 @@ function blockContent(){
   const keepNames = review.days === state.days.length && g.split === "keep";
   return [nowText(), goalsText(), bodyText(), interviewText(), gearText(), baseText(), weekText(), horizonText(), RESEARCH_BRIEF,
     `Block ${b.n} is ending: ${plural(A.weeks, "week")} trained, ${plural(A.S.length, "workout")}, ${Math.round(A.adherence * 100)}% of planned workouts made${A.rir != null ? `, sets averaged ${A.rir.toFixed(1)} reps in reserve` : ""}${mins ? `, workouts averaged ${mins} minutes` : ""}. ${readyText(A)}`,
-    `How each lift did this block:\n${liftsText(A)}`, feelText(A),
+    `How each lift did this block:\n${liftsText(A)}`, feelText(A), painText(),
     `Hard sets per muscle this block (helper sets count half): ${mus || "not enough data"}.`,
     `Weekly hard sets per muscle the app suggests for the next block, from its trends and their priorities (a guide, adjust with reason): ${tgt}.`,
     programText(), pastBlocksText(), historyText(6), overlapText(), TIMING_TEXT,
@@ -3277,6 +3289,39 @@ function finishIssues(a){
   });
   return out;
 }
+// ---------- Too heavy? ----------
+// If you went heavier than your target and reps fell below your range, offer to step back next time.
+let oreach = null;
+function overreach(a){
+  const out = [];
+  a.items.forEach((it, xi) => {
+    const ex = exById(it.ex), tw = it.target && num(it.target.w), lo = it.lo || 8;
+    if (!tw || ex.t === "time" || isAssisted(ex)) return;
+    const W = it.sets.filter(q => q.done && q.tag !== "W" && q.tag !== "D"), heavy = W.filter(q => (num(q.w) || 0) > tw);
+    if (!heavy.length || !heavy.some(q => (num(q.r) || 0) < lo)) return;
+    const okW = [...new Set(W.map(q => num(q.w) || 0))].filter(w => W.filter(q => (num(q.w) || 0) === w).every(q => (num(q.r) || 0) >= lo)).sort((x, y) => y - x)[0];
+    const back = okW && okW <= Math.max(...heavy.map(q => num(q.w) || 0)) ? okW : tw, reps = it.target.reps && it.target.reps.length ? it.target.reps.map(num) : [lo];
+    out.push({ x:xi, name:ex.n, top:Math.max(...heavy.map(q => num(q.w) || 0)), low:heavy.filter(q => (num(q.r) || 0) < lo).map(q => num(q.r) || 0), lo, back, reps, pick:"back" });
+  });
+  return out;
+}
+function reachPanel(){
+  if (!oreach) return "";
+  return `<div class="panel" id="oreach" role="alert" style="gap:10px;border:2px solid var(--accent)"><b>⚖️ Went a little heavy?</b>
+    ${oreach.map((o, i) => `<div style="display:flex;flex-direction:column;gap:6px"><span>${esc(o.name)}: ${fmtW(o.top)} for ${o.low.join(", ")}, under your ${o.lo}+ range.</span>
+      <div class="chips"><button class="chip" data-act="reachPick" data-i="${i}" data-v="back" id="rb-${i}" aria-pressed="${o.pick === "back"}">Next time: ${fmtW(o.back)} × ${o.reps.join(", ")}</button><button class="chip" data-act="reachPick" data-i="${i}" data-v="stay" id="rs-${i}" aria-pressed="${o.pick === "stay"}">Stay at ${fmtW(o.top)}</button>
+      <button class="chip" data-act="reachPain" data-i="${i}" id="rp-${i}" aria-pressed="${!!state.active.items[o.x].pain}">😣 It hurt</button></div></div>`).join("")}
+    <span class="hint" style="font-size:12.5px">Stepping back keeps your reps in the range that builds muscle and lets you add weight again with good form. “It hurt” makes next time about 15% lighter.</span>
+    <button class="primary" data-act="reachFinish" id="reachFinish">Save and finish</button></div>`;
+}
+// finish: typo check first, then the too-heavy check, then save
+function tryFinish(skipTypos){
+  if (!skipTypos){ const iss = finishIssues(state.active); if (iss.length){ fcheck = iss; render(); const el = document.getElementById("fcheck"); if (el) el.scrollIntoView({ block:"center", behavior:"smooth" }); return; } }
+  fcheck = null;
+  if (!oreach){ const ov = overreach(state.active); if (ov.length){ oreach = ov; render(); const el = document.getElementById("oreach"); if (el) el.scrollIntoView({ block:"center", behavior:"smooth" }); return; } }
+  if (oreach) oreach.forEach(o => { const it = state.active.items[o.x]; if (it) it.back = o.pick === "back" ? { w:o.back, reps:o.reps } : null; });
+  oreach = null; finishSession();
+}
 function checkPanel(){
   if (!fcheck) return "";
   return `<div class="panel" id="fcheck" role="alert" style="gap:8px;border:2px solid var(--bad)"><b>🔎 Quick check before you finish</b>
@@ -3385,9 +3430,13 @@ document.addEventListener("click", e => {
     case "restTap": { const it = state.active.items[x]; startTimer(it.rest, exById(it.ex).n); save(); render(); break; }
     case "sxUp": { const a = state.active.items; if (x > 0){ [a[x-1], a[x]] = [a[x], a[x-1]]; save(); render(); } break; }
     case "sxRm": confirmThen("sxrm"+x, ()=>{ state.active.items.splice(x,1); save(); render(); }); break;
-    case "finish": { const iss = finishIssues(state.active); if (!iss.length){ fcheck = null; finishSession(); break; }
-      fcheck = iss; render(); const el = document.getElementById("fcheck"); if (el) el.scrollIntoView({ block:"center", behavior:"smooth" }); break; }
-    case "fcFinish": fcheck = null; finishSession(); break;
+    case "finish": tryFinish(false); break;
+    case "fcFinish": tryFinish(true); break;
+    case "reachPick": oreach[+b.dataset.i].pick = b.dataset.v; render(); break;
+    case "reachPain": { const it = state.active.items[oreach[+b.dataset.i].x]; it.pain = !it.pain; save(); render(); break; }
+    case "reachFinish": tryFinish(true); break;
+    case "histPain": { const ss = state.sessions.find(z => z.id === b.dataset.sid), it = ss && ss.items[+b.dataset.i]; if (it){ it.pain = !it.pain; save(); render(); if (it.pain) showToast(`Noted. ${exById(it.ex).n} starts about 15% lighter next time.`); } break; }
+    case "painToggle": { const it = state.active.items[x]; it.pain = !it.pain; save(); render(); if (it.pain) showToast("Noted. Next time this one starts about 15% lighter."); break; }
     case "fcBack": fcheck = null; render(); break;
     case "fcFix": { const xi = b.dataset.x, si = b.dataset.s, f = fcheck; fcheck = null; render();
       const it = state.active.items[+xi], q = it && it.sets[+si], bad = f && f.find(z => z.x == xi && z.s == si), wFirst = bad && /switched|weight|digit\?$/.test(bad.t) && !/reps|longer|no (reps|time)/.test(bad.t);
