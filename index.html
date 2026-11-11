@@ -94,6 +94,8 @@ textarea{min-height:90px;resize:vertical;font-size:13px}
 .setrow.done{background:var(--done)}
 .setrow .sn{font-weight:800;text-align:center;color:var(--muted)}
 .setrow input{text-align:center;font-size:19px;font-weight:700;padding:9px 4px}
+.setrow .lr{display:grid;grid-template-columns:1fr 1fr;gap:4px;min-width:0}
+.setrow .lr input{font-size:17px;padding:9px 2px;min-width:0}
 .setrow .ck{height:46px;padding:0;font-size:22px;font-weight:800}
 .setrow.done .ck{background:var(--good);border-color:var(--good);color:#fff}
 .setlbl{display:grid;grid-template-columns:28px 1fr 1fr 52px;gap:8px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700;text-align:center;padding:0 4px}
@@ -525,8 +527,19 @@ const BASE_LIKELY = /Hack|Leg Press|Pendulum|Belt Squat|V-Squat|Hammer|Plate|Iso
 const baseLikely = ex => ex.e === "SM" || ex.e === "PL" || BASE_LIKELY.test(ex.n);
 // the side you led with the last time you did this exercise
 function lastFirst(exId){ for (let i = state.sessions.length - 1; i >= 0; i--){ const it = state.sessions[i].items.find(q => q.ex === exId && q.first); if (it) return { side:it.first, at:state.sessions[i].end }; } return null; }
+// left/right gap over your last 3 workouts that logged both sides: which side is weaker and by how much
+function sideGap(exId){
+  const P = []; for (let i = state.sessions.length - 1; i >= 0 && P.length < 3; i--){ const it = state.sessions[i].items.find(q => q.ex === exId); if (!it) continue;
+    const both = it.sets.filter(q => q.done && q.tag !== "W" && num(q.rl) && num(q.rr)); if (both.length) P.push(both); }
+  if (!P.length) return null;
+  const L = P.flat().reduce((t, q) => t + num(q.rl), 0), R = P.flat().reduce((t, q) => t + num(q.rr), 0), gap = Math.abs(L - R) / Math.max(L, R);
+  return { weak:L < R ? "L" : "R", gap, n:P.length };
+}
 function sideRow(it, ex, xi){
   if (!isUni(ex)) return "";
+  const sg = sideGap(it.ex), uneven = sg && sg.gap >= .08;
+  if (uneven) return `<div class="row" style="gap:8px;flex-wrap:wrap;align-items:center"><span class="hint" style="font-weight:700">Started with</span><span class="chips">${["L","R"].map(k => `<button class="chip" data-act="side" data-x="${xi}" data-v="${k}" id="side-${xi}-${k}" aria-pressed="${it.first === k}">${SIDE[k]}${!it.first && sg.weak === k ? " ★" : ""}</button>`).join("")}</span>
+    <span class="hint" style="font-size:12.5px;flex-basis:100%">Your ${SIDE[sg.weak].toLowerCase()} side has been about ${Math.round(sg.gap * 100)}% behind lately. Start with it every set, and stop the other side at the same reps so it can catch up.</span></div>`;
   const lf = lastFirst(it.ex), sug = lf ? (lf.side === "L" ? "R" : "L") : null;
   return `<div class="row" style="gap:8px;flex-wrap:wrap;align-items:center"><span class="hint" style="font-weight:700">Started with</span><span class="chips">${["L","R"].map(k => `<button class="chip" data-act="side" data-x="${xi}" data-v="${k}" id="side-${xi}-${k}" aria-pressed="${it.first === k}">${SIDE[k]}${!it.first && sug === k ? " ★" : ""}</button>`).join("")}</span>
     <span class="hint" style="font-size:12.5px;flex-basis:100%">${lf ? `Last time (${agoTxt(lf.at)}) you started with your ${SIDE[lf.side].toLowerCase()}, so lead with your ${SIDE[sug].toLowerCase()} today.${it.first ? "" : " It's logged when you finish your first set; tap to change."}` : "Tap the side you start with, and next time the app tells you to lead with the other one."}</span></div>`;
@@ -685,12 +698,38 @@ function cleanState(st){
   (st.custom || []).forEach(c => { c.n = cleanName(c.n) || "Custom exercise"; ["m","e","t","p","k"].forEach(k => { if (c[k] != null) c[k] = cleanName(c[k], 40); }); if (c.tip != null) c.tip = cleanName(c.tip, 300); });
   (st.days || []).forEach(d => { d.name = cleanName(d.name, 40); });
   (st.saved || []).forEach(d => { if (d.name != null) d.name = cleanName(d.name, 40); });
-  (st.sessions || []).forEach(x => { if (x.dayName != null) x.dayName = cleanName(x.dayName, 40); });
+  (st.sessions || []).forEach(x => { if (x.dayName != null) x.dayName = cleanName(x.dayName, 40); (x.items || []).forEach(it => { if (/[<>&"'`\\]/.test(it.ex)) it.ex = cleanName(it.ex); }); });
+  (st.days || []).forEach(d => (d.items || []).forEach(it => { if (/[<>&"'`\\]/.test(it.ex)) it.ex = cleanName(it.ex); }));
   return st;
 }
 function load(){ try{ const s = localStorage.getItem(KEY); return s ? JSON.parse(s) : null; }catch(e){ return null; } }
-let saveOK = true;
-function save(){ if (typeof expoCache !== "undefined") expoCache.key = ""; try{ localStorage.setItem(KEY, JSON.stringify(state)); saveOK = true; }catch(e){ saveOK = false; } }
+// Saving: a burst of typing writes once, a third of a second after the last change, and anything pending is written
+// straight away when the app goes to the background or closes. Every day a snapshot of everything goes to the
+// phone's database (the last 10 are kept), and one more is taken before any restore.
+let saveOK = true, saveT = null;
+function saveNow(){ clearTimeout(saveT); saveT = null; try{ localStorage.setItem(KEY, JSON.stringify(state)); saveOK = true; }catch(e){ saveOK = false; } }
+function save(){ if (typeof expoCache !== "undefined") expoCache.key = ""; clearTimeout(saveT); saveT = setTimeout(saveNow, 300); }
+const flushSave = () => { if (saveT) saveNow(); };
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") flushSave(); });
+addEventListener("pagehide", flushSave);
+let sdb = null;
+function snapDb(){ return sdb || (sdb = new Promise((res, rej) => { const r = indexedDB.open("iron-log-snapshots", 1); r.onupgradeneeded = () => r.result.createObjectStore("snaps"); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); })); }
+function snapDo(mode, fn){ return snapDb().then(db => new Promise((res, rej) => { const tx = db.transaction("snaps", mode), req = fn(tx.objectStore("snaps")); tx.oncomplete = () => res(req && req.result); tx.onerror = () => rej(tx.error); })); }
+let snapList = null;   // [{ key, at, n, why }]
+function snapSummary(st){ const S = st.sessions || []; return { n:S.length, from:S.length ? S[0].end : null, to:S.length ? S[S.length-1].end : null }; }
+async function takeSnap(why){
+  try{ const key = why === "daily" ? "d-" + new Date().toISOString().slice(0, 10) : "r-" + Date.now();
+    await snapDo("readwrite", st => st.put({ at:Date.now(), why, data:JSON.stringify(state), ...snapSummary(state) }, key));
+    const keys = (await snapDo("readonly", st => st.getAllKeys())).sort(), daily = keys.filter(k => k.startsWith("d-")), other = keys.filter(k => k.startsWith("r-"));
+    await snapDo("readwrite", st => { daily.slice(0, Math.max(0, daily.length - 10)).concat(other.slice(0, Math.max(0, other.length - 3))).forEach(k => st.delete(k)); return null; });
+    snapList = null; }catch(e){}
+}
+async function listSnaps(){ try{ const keys = await snapDo("readonly", st => st.getAllKeys()), vals = await snapDo("readonly", st => st.getAll());
+  snapList = keys.map((k, i) => ({ key:k, at:vals[i].at, n:vals[i].n, why:vals[i].why })).sort((a, b) => b.at - a.at); }catch(e){ snapList = []; } render(); }
+async function restoreSnap(key){ try{ const v = await snapDo("readonly", st => st.get(key)); if (!v) return; await takeSnap("before-restore");
+  state = { ...fresh(), ...JSON.parse(v.data), timer:null, tab:"program" }; migrate(); saveNow(); snapList = null; showToast(`Back to your data from ${new Date(v.at).toLocaleDateString()} (${plural(v.n, "workout")}).`); render(); }catch(e){ showToast("Couldn't open that snapshot."); render(); } }
+function dailySnap(){ try{ if (localStorage.getItem("iron-log-snap-day") === new Date().toISOString().slice(0, 10) || !(state.sessions.length || state.days.length)) return;
+  localStorage.setItem("iron-log-snap-day", new Date().toISOString().slice(0, 10)); takeSnap("daily"); }catch(e){} }
 const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const plural = (n, w) => `${n} ${w}${n===1?"":"s"}`;
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,6);
@@ -700,7 +739,7 @@ const U = () => state.units;
 const fmtTime = s => { s = Math.max(0, Math.round(s)); const m = Math.floor(s/60), r = s % 60; return `${m}:${String(r).padStart(2,"0")}`; };
 const parseTime = v => { v = String(v||"").trim(); if (!v) return null; if (v.includes(":")){ const [m,s] = v.split(":"); return (+m||0)*60 + (+s||0); } return +v || null; };
 const num = v => { const x = parseFloat(String(v).replace(",", ".")); return isFinite(x) ? x : null; };
-const e1rm = (w, r) => (w > 0 && r > 0 && r <= 15) ? (r === 1 ? w : w * (1 + r/30)) : null;
+const e1rm = (w, r) => (w > 0 && r > 0 && r <= 12) ? (r === 1 ? w : w * (1 + r/30)) : null;
 const dayMs = 864e5;
 const startOfDay = t => { const d = new Date(t); d.setHours(0,0,0,0); return d.getTime(); };
 const fmtDate = t => new Date(t).toLocaleDateString(undefined, { weekday:"short", month:"short", day:"numeric" });
@@ -862,7 +901,8 @@ function perfScore(work, ex){
   if (isAssisted(ex)){ const bw = bwNow(); return Math.max(0, ...work.filter(s => s.tag !== "D").map(s => { const r = Math.min(num(s.r) || 0, 20); return r ? Math.max(1, bw - (num(s.w) || 0)) * (1 + r/30) : 0; })); }
   const use = work.some(s => s.tag !== "D") ? work.filter(s => s.tag !== "D") : work;
   if (!use.some(s => num(s.w)) && !baseOf(ex)) return Math.max(0, ...use.map(s => num(s.r) || 0));
-  return Math.max(0, ...use.map(s => { const w = effW(ex, s.w), r = Math.min(num(s.r) || 0, 20); return w && r ? w * (1 + r/30) : 0; }));
+  // reps plus the reps you had left (calibrated), capped at 12: past that the formula overrates light sets
+  return Math.max(0, ...use.map(s => { const w = effW(ex, s.w), r0 = num(s.r) || 0, r = Math.min(r0 + (r0 && s.rir != null ? Math.max(0, Math.min(4, s.rir + calBias())) : 0), 12); return w && r ? w * (1 + r/30) : 0; }));
 }
 function bestSet(work, ex){ let b = null, bs = -1; work.forEach(s => { const v = perfScore([s], ex); if (v > bs){ bs = v; b = s; } }); return b ? fmtSet({ w:b.w, r:b.r }, ex.t) : ""; }
 const trendOf = c => c == null ? "new" : c >= .05 ? "up" : c >= .015 ? "steady" : c > -.02 ? "flat" : "down";
@@ -1007,7 +1047,8 @@ function targetFor(tpl, ctx){
   // set 2 and shrinks after, and it grows with shorter rests (Senna 2011; Nuzzo 2024).
   const nR = topR.length, sumR = topR.reduce((a, b) => a + b, 0);
   const allow = k => k === 0 ? 0 : Math.max(2 * k, Math.min(usual[Math.min(k, usual.length - 1)] || 0, Math.ceil(hi * .25) * k));
-  const readyAt = h => topR[0] >= h && topR.every(r => r >= lo) && sumR >= topR.reduce((t, _, k) => t + Math.max(lo, h - allow(k)), 0), ready = readyAt(hi);
+  // later sets may dip one rep under the range: that's normal fatigue, and the "went heavy" check allows it too
+  const readyAt = h => topR[0] >= h && topR.every((r, k) => r >= lo - (k ? 1 : 0)) && sumR >= topR.reduce((t, _, k) => t + Math.max(lo, h - allow(k)), 0), ready = readyAt(hi);
   const withDrop = r => drop.map(d => Math.max(lo, r - d));
   if (!W){
     if (ctx.intro) return fill("", Math.max(1, Math.min(...topR) - 2), "deload", "Learning week: a couple of reps short of last time.");
@@ -1584,14 +1625,24 @@ function readCalOffer(){
 // ---------- restoring a backup ----------
 async function restoreFrom(text, tab){
   let obj, data;
-  try{ obj = JSON.parse(String(text || "").trim()); data = obj.data || obj; if (!Array.isArray(data.days) || !Array.isArray(data.sessions)) throw new Error("bad"); }
+  try{ obj = JSON.parse(String(text || "").trim()); data = obj.data || obj; if (!data || typeof data !== "object" || !Array.isArray(data.days) || !Array.isArray(data.sessions)) throw new Error("bad"); }
   catch(err){ showToast("That doesn't look like an Iron Log backup."); render(); return false; }
+  // keep only well-formed workouts and days; anything else in the file is dropped, not trusted
+  const okItem = it => it && typeof it === "object" && typeof it.ex === "string" && Array.isArray(it.sets);
+  const before = data.sessions.length;
+  data.sessions = data.sessions.filter(x => x && typeof x === "object" && Array.isArray(x.items) && isFinite(x.end)).map(x => ({ ...x, items:x.items.filter(okItem).map(it => ({ ...it, sets:it.sets.filter(q => q && typeof q === "object") })) }));
+  data.days = data.days.filter(d => d && typeof d === "object" && Array.isArray(d.items)).map(d => ({ ...d, name:String(d.name || "Workout"), items:d.items.filter(it => it && typeof it.ex === "string") }));
+  data.custom = Array.isArray(data.custom) ? data.custom.filter(c => c && typeof c.id === "string") : [];
+  if (data.active && !(Array.isArray(data.active.items) && data.active.items.every(okItem))) data.active = null;
+  const dropped = before - data.sessions.length;
+  await takeSnap("before-restore");   // what was here, kept so the restore can be undone
   state = { ...fresh(), ...data, timer:null, tab:tab || "program" }; review = null; restoreText = ""; restoreOpen = false; migrate(); save();
   let n = 0;
   for (const [id, d] of Object.entries(obj.photos || {})){
     try{ const full = await (await fetch(d)).blob(), img = await blobImage(full), thumb = await jpeg(scaled(img, 360), .75); URL.revokeObjectURL(img.src); await idbPut(id, { full, thumb }); dropCache(id); n++; }catch(e){}
   }
-  showToast(`Restored ${plural(state.sessions.length,"workout")}${n ? ` and ${plural(n, "photo")}` : ""}.`); render();
+  const sm = snapSummary(state), yr = t => new Date(t).getFullYear();
+  showToast(`Restored ${plural(sm.n,"workout")}${sm.n ? ` (${yr(sm.from)}${yr(sm.to) !== yr(sm.from) ? `–${yr(sm.to)}` : ""})` : ""}${n ? ` and ${plural(n, "photo")}` : ""}${dropped ? `, skipped ${dropped} damaged` : ""}. Undo it under Settings → Safety snapshots.`); render();
   return true;
 }
 const hasData = () => state.sessions.length > 0 || state.days.length > 0;
@@ -1737,7 +1788,7 @@ function blockCard(){
   const rir = effortFor(I.week, b.weeks, b.intro), left = Math.max(1, b.weeks - I.done);
   return `<div class="panel" style="gap:8px"><div class="row"><b class="grow">Block ${b.n} · Week ${Math.min(I.week, b.weeks)} of ${b.weeks}</b><span class="hint num">${left === 1 ? "last week" : `refresh in ${left} weeks`}</span></div>
     <div class="pbar"><span style="width:${Math.min(100, I.done / b.weeks * 100)}%"></span></div>
-    <span class="hint">${I.intro ? "Learning week, which doubles as a deload: one set fewer per exercise. Stop 3–4 reps short of failure and find your weights." : I.week === easyWeekOf(b.weeks) ? "Easier mid-block week: same weights, no 4th sets, stop 3–4 reps short of failure. The build-up starts again next week." : I.week >= b.weeks ? "Last week of the block: take your working sets to 0–1 reps short of failure (big barbell lifts: 1–2). Next block starts with a learning week that doubles as your deload." : `This week: stop working sets ${rir[0]}–${rir[1]} reps short of failure.`}${(() => { const n = buildCount({ week:I.week, weeks:b.weeks, intro:I.intro, easy:I.week === easyWeekOf(b.weeks) }); return n ? ` Build week: up to ${n} exercise${n > 1 ? "s" : ""} a day get${n > 1 ? "" : "s"} a 4th set when they're still progressing.` : ""; })()}</span></div>`;
+    <span class="hint">${I.intro ? "Learning week, which doubles as a deload: one set fewer per exercise. Stop 3–4 reps short of failure and find your weights." : I.week === easyWeekOf(b.weeks) ? "Easier mid-block week: one set fewer per exercise, same weights, stop 3–4 reps short of failure. The build-up starts again next week." : I.week >= b.weeks ? "Last week of the block: take your working sets to 0–1 reps short of failure (big barbell lifts: 1–2). Next block starts with a learning week that doubles as your deload." : `This week: stop working sets ${rir[0]}–${rir[1]} reps short of failure.`}${(() => { const n = buildCount({ week:I.week, weeks:b.weeks, intro:I.intro, easy:I.week === easyWeekOf(b.weeks) }); return n ? ` Build week: up to ${n} exercise${n > 1 ? "s" : ""} a day get${n > 1 ? "" : "s"} a 4th set when they're still progressing.` : ""; })()}</span></div>`;
 }
 
 function sessionView(){
@@ -1751,7 +1802,8 @@ function sessionView(){
         ${isT ? `<input type="text" inputmode="numeric" id="w-${xi}-${si}" data-f="w" data-x="${xi}" data-s="${si}" value="${esc(s.w)}" placeholder="${U()} (opt.)" autocomplete="off" aria-label="Set ${si+1} added weight">
                  <input type="text" inputmode="numeric" id="r-${xi}-${si}" data-f="r" data-x="${xi}" data-s="${si}" value="${esc(s.r)}" placeholder="m:ss" autocomplete="off" aria-label="Set ${si+1} time">`
                : `<input type="text" inputmode="decimal" id="w-${xi}-${si}" data-f="w" data-x="${xi}" data-s="${si}" value="${esc(s.w)}" placeholder="${ex.e==="BW"?"BW":U()}" autocomplete="off" aria-label="Set ${si+1} weight">
-                 <input type="text" inputmode="numeric" id="r-${xi}-${si}" data-f="r" data-x="${xi}" data-s="${si}" value="${esc(s.r)}" placeholder="${it.lo&&it.hi?`${it.lo}-${it.hi}`:"reps"}" autocomplete="off" aria-label="Set ${si+1} reps">`}
+                 ${isUni(ex) ? `<span class="lr"><input type="text" inputmode="numeric" id="r-${xi}-${si}" data-f="rl" data-x="${xi}" data-s="${si}" value="${esc(s.rl != null ? s.rl : s.r)}" placeholder="L" autocomplete="off" aria-label="Set ${si+1} left reps"><input type="text" inputmode="numeric" id="rr-${xi}-${si}" data-f="rr" data-x="${xi}" data-s="${si}" value="${esc(s.rr != null ? s.rr : s.r)}" placeholder="R" autocomplete="off" aria-label="Set ${si+1} right reps"></span>`
+                 : `<input type="text" inputmode="numeric" id="r-${xi}-${si}" data-f="r" data-x="${xi}" data-s="${si}" value="${esc(s.r)}" placeholder="${it.lo&&it.hi?`${it.lo}-${it.hi}`:"reps"}" autocomplete="off" aria-label="Set ${si+1} reps">`}`}
         <button class="ck" data-act="done" data-x="${xi}" data-s="${si}" id="ck-${xi}-${si}" aria-pressed="${s.done}" aria-label="Set ${si+1} done">✓</button>
         ${s.done ? `<span class="setmeta num">${s.rest!=null?`rested ${fmtTime(s.rest)}`:""}${s.pr?`${s.rest!=null?" · ":""}<b>🏆 ${s.pr===true?"New PR!":esc(s.pr)}</b>`:""}
           ${s.tag!=="W"&&!isT?`<span class="rir" role="group" aria-label="Reps in reserve"><span class="rl">RIR</span>${[0,1,2,3,4].map(v=>`<button data-act="rir" data-x="${xi}" data-s="${si}" data-v="${v}" id="rir-${xi}-${si}-${v}" aria-pressed="${s.rir===v}">${v===4?"4+":v}</button>`).join("")}</span>`:""}</span>` : ""}
@@ -1769,7 +1821,7 @@ function sessionView(){
       ${sideRow(it, ex, xi)}
       ${baseLikely(ex) && loaded(ex) && !(ex.id in state.base) ? `<p class="hint" style="font-size:12.5px">⚙️ This machine may add starting resistance (look for a sticker). Enter it once under Form tip, notes &amp; options, or put 0 if there isn't one.</p>` : ""}
       ${warmupHelp(it, ex, xi)}
-      <div class="setlbl"><span>Set</span><span>${isT?"+Weight":"Weight"}</span><span>${isT?"Time":"Reps"}</span><span></span></div>
+      <div class="setlbl"><span>Set</span><span>${isT?"+Weight":"Weight"}</span><span>${isT?"Time":isUni(ex)?"Reps L · R":"Reps"}</span><span></span></div>
       <div class="sets">${rows}</div>
       ${it.cal ? calBox(it, ex, xi) : ""}
       <div class="btnrow"><button class="small" data-act="addSet" data-x="${xi}" id="addset-${xi}">+ Add set</button><button class="small ghost" data-act="rmSet" data-x="${xi}" id="rmset-${xi}" ${it.sets.length<=1?"disabled":""}>Remove last set</button>
@@ -1798,7 +1850,7 @@ function sessionView(){
     ${a.ready && a.ready.level !== "normal" ? `<p class="${a.ready.level === "rough" || a.ready.level === "recovery" ? "err" : a.ready.level === "great" ? "ok" : "hint"}" style="margin:-4px 0 0">${READY_MSG[a.ready.level]}</p>` : ""}
     ${a.coach ? `<p class="notepre" style="margin:-4px 4px 0">🤖 ${esc(a.coach)}</p>` : ""}
     ${a.light ? `<p class="hint" style="margin:-4px 4px 0">🌙 Lighter week: one set fewer, same weights, stop 3–4 reps before failure.</p>` : ""}
-    ${w ? `<p class="hint" style="margin:-6px 4px 0">${w.intro ? "Learning week: one set fewer per exercise. Stop 3–4 reps short of failure and find your working weights." : a.easy ? "Easier mid-block week: same weights, no extra sets, stop 3–4 reps short of failure. The build-up starts again next week." : w.week >= w.weeks ? "Last week of the block: take working sets to 0–1 reps short of failure (big barbell lifts: 1–2)." : `This week: stop working sets ${w.rir[0]}–${w.rir[1]} reps short of failure.`}</p>` : ""}
+    ${w ? `<p class="hint" style="margin:-6px 4px 0">${w.intro ? "Learning week: one set fewer per exercise. Stop 3–4 reps short of failure and find your working weights." : a.easy ? "Easier mid-block week: one set fewer per exercise, same weights, stop 3–4 reps short of failure. The build-up starts again next week." : w.week >= w.weeks ? "Last week of the block: take working sets to 0–1 reps short of failure (big barbell lifts: 1–2)." : `This week: stop working sets ${w.rir[0]}–${w.rir[1]} reps short of failure.`}</p>` : ""}
     ${items || `<p class="hint">No exercises yet. Add some below.</p>`}
     <button data-act="pick" data-target="session" id="addExSess">+ Add exercise</button>
     <div class="btnrow">${a.savedId && state.saved.some(z => z.id === a.savedId) ? `<button class="small" data-act="updateSaved" id="updateSaved">💾 Update “${esc(state.saved.find(z => z.id === a.savedId).name)}”</button>` : ""}<button class="small ghost" data-act="saveActive" id="saveActive">💾 Save as a new saved workout</button></div>
@@ -1983,6 +2035,10 @@ function settingsView(){
       <button data-act="restore" id="restore">${confirmKey==="restore"?"Tap again to replace everything with this backup":"Restore"}</button></div></details>
     ${backupBox!=null?`<textarea id="backupOut" readonly aria-label="Your backup">${esc(backupBox)}</textarea><p class="hint">Couldn't copy automatically. Select all of the text above and copy it into a note or email to yourself.</p>`:""}
     <p class="hint num">${plural(state.sessions.length,"workout")} saved · ${state.custom.length} custom exercise${state.custom.length===1?"":"s"}</p>
+    <details id="snapsPanel"><summary style="cursor:pointer;font-weight:600" data-act="snapsOpen" id="snapsOpen">🛟 Safety snapshots</summary>
+      <p class="hint" style="margin-top:6px">A copy of everything is kept on this phone once a day (the last 10), plus one before every restore. Photos aren't included; your backup file has those. Storage used: ${(() => { try{ const kb = Math.round((localStorage.getItem(KEY) || "").length / 1024); return `${kb.toLocaleString()} KB of about 5,000 KB${kb > 3500 ? ". Getting full: save a backup file and ask Claude to move history to the larger database." : ""}`; }catch(e){ return "unknown"; } })()}</p>
+      ${snapList ? (snapList.length ? snapList.map(x => `<div class="row" style="gap:8px;align-items:center"><span class="grow hint">${new Date(x.at).toLocaleString(undefined, { month:"short", day:"numeric", hour:"numeric", minute:"2-digit" })} · ${plural(x.n, "workout")}${x.why === "before-restore" ? " · before a restore" : ""}</span><button class="small" data-act="snapGo" data-v="${esc(x.key)}" id="snap-${esc(x.key)}">${confirmKey === "snap-" + x.key ? "Tap again to go back" : "Go back to this"}</button></div>`).join("") : `<p class="hint">No snapshots yet. The first is taken the next time you open the app.</p>`) : ""}
+    </details>
     <button class="small danger" data-act="wipe" id="wipe">${confirmKey==="wipe"?"Tap again: this deletes everything":"Delete all data"}</button></div>`;
 }
 
@@ -3318,7 +3374,7 @@ function newItem(exId){ const ex = exById(exId); return { ex:exId, ...DEFAULTS[k
 // A workout item with today's target filled in. In a learning week each exercise gets one set fewer.
 function buildSessionItem(tpl, ctx, exactSets){
   ctx = ctx || sessionCtx(state.active ? state.active.dayId : null);
-  const ex = exById(tpl.ex), n = (ctx.intro || ctx.lighter) && !exactSets && (tpl.sets || 3) > 2 ? (tpl.sets || 3) - 1 : (tpl.sets || 3);
+  const ex = exById(tpl.ex), n = (ctx.intro || ctx.lighter || ctx.easy) && !exactSets && (tpl.sets || 3) > 2 ? (tpl.sets || 3) - 1 : (tpl.sets || 3);
   const t = targetFor({ ...tpl, sets:n }, ctx), last = lastPerf(tpl.ex), lw = last && last.work.length ? String(last.work[0].w || "") : "";
   const sets = Array.from({length:n}, (_,k) => ({ w: t.w !== "" ? String(t.w) : (t.kind === "new" ? "" : lw), r: t.reps[k] !== "" && t.reps[k] != null ? String(t.reps[k]) : "", done:false }));
   return { ex:tpl.ex, sets, targetSets:n, lo:tpl.lo, hi:tpl.hi, rest:tpl.rest || DEFAULTS[klass(ex)].rest, ss:!!tpl.ss, target:{ w:t.w, reps:t.reps, kind:t.kind, why:t.why, ...(t.flag ? { flag:t.flag } : {}), ...(t.from != null ? { from:t.from, fromReps:t.fromReps } : {}) } };
@@ -3539,7 +3595,7 @@ document.addEventListener("click", e => {
       const it = state.active.items[x], s = it.sets[+b.dataset.s];
       if (s.done){ s.done = false; s.pr = false; s.rest = null; save(); render(); break; }
       const ex = exById(it.ex);
-      if (isUni(ex) && !it.first){ const lf = lastFirst(it.ex); if (lf) it.first = lf.side === "L" ? "R" : "L"; }
+      if (isUni(ex) && !it.first){ const sg = sideGap(it.ex), lf = lastFirst(it.ex); if (sg && sg.gap >= .08) it.first = sg.weak; else if (lf) it.first = lf.side === "L" ? "R" : "L"; }
       if (it.cal && +b.dataset.s === it.sets.length - 1 && !s.done){
         if (s.guess != null && num(s.r)){ const actual = num(s.r) - calTarget(it); s.calRes = { guess:s.guess, actual }; s.rir = 0; (state.calib || (state.calib = [])).push({ at:Date.now(), ex:it.ex, guess:s.guess, actual });
           setTimeout(() => showToast(`🎯 You guessed ${s.guess} left, you had ${actual}.`), 900); }
@@ -3547,11 +3603,13 @@ document.addEventListener("click", e => {
       }
       if (ex.t === "time" ? !parseTime(s.r) : !num(s.r)){ showToast(ex.t==="time" ? "Enter the time first, like 0:45." : "Enter your reps first."); render(); break; }
       s.done = true; s.ts = Date.now();
-      if (state.active.lastDone) s.rest = Math.round((s.ts - state.active.lastDone)/1000);
+      // rest = the gap between check-marks minus this set's own working time (about 3 s a rep, or the hold)
+      if (state.active.lastDone) s.rest = Math.max(0, Math.round((s.ts - state.active.lastDone)/1000 - (ex.t === "time" ? parseTime(s.r) || 0 : 3 * (num(s.r) || 0))));
       state.active.lastDone = s.ts;
       const hist = prHistory(it.ex), pr = hist.n ? setPR(ex, s, hist.sets.concat(workSets(it.sets.filter(q => q !== s)))) : null;
       s.pr = pr || false;   // the 🏆 badge on the set says it; no pop-up on top of it
       // prefill the next set with this set's numbers if it's empty
+      if (isUni(ex)){ if (s.rl == null) s.rl = s.r; if (s.rr == null) s.rr = s.r; }
       const nx = it.sets[+b.dataset.s + 1]; if (nx && !nx.done){ if (!nx.w) nx.w = s.w; if (!nx.r) nx.r = s.r; }
       const moreLeft = state.active.items.some(q => q.sets.some(z => !z.done));
       const partner = it.ss ? state.active.items[x+1] : null;
@@ -3749,13 +3807,18 @@ document.addEventListener("click", e => {
       saveAiKey(k); aiDraft = null; aiTestNow("Saved. "); break; }
     case "aiTest": aiTestNow(""); break;
     case "aiDrop": confirmThen("aidrop", () => { saveAiKey(""); aiDraft = null; aiStatus = { k:"hint", t:"Key removed from this phone." }; render(); }); break;
+    case "snapsOpen": if (!snapList) setTimeout(listSnaps, 0); break;
+    case "snapGo": { const k = b.dataset.v; confirmThen("snap-" + k, () => restoreSnap(k)); break; }
     case "wipe": confirmThen("wipe", ()=>{ saveAiKey(""); aiStatus = null; aiDraft = null; coach = null; plogClose(); photos().forEach(ph => dropCache(ph.id)); idbDo("readwrite", st => st.clear()).catch(() => {}); state = fresh(); state.tab = "program"; review = null; goalsOpen = null; migrate(); save(); render(); }); break;
     case "delSess": confirmThen("dels"+b.dataset.i, ()=>{ state.sessions.splice(+b.dataset.i,1); save(); render(); }); break;
   }
 });
 document.addEventListener("input", e => {
   const t = e.target;
-  if (t.dataset.f && state.active){ const s = state.active.items[+t.dataset.x].sets[+t.dataset.s]; s[t.dataset.f] = t.value.replace(/[^\d.,:]/g,""); if (s[t.dataset.f] !== t.value) t.value = s[t.dataset.f]; save(); }
+  if (t.dataset.f && state.active){ const s = state.active.items[+t.dataset.x].sets[+t.dataset.s]; s[t.dataset.f] = t.value.replace(/[^\d.,:]/g,""); if (s[t.dataset.f] !== t.value) t.value = s[t.dataset.f];
+    // one side at a time: the set counts as the weaker side's reps
+    if (t.dataset.f === "rl" || t.dataset.f === "rr"){ const o = t.dataset.f === "rl" ? "rr" : "rl"; if (s[o] == null) s[o] = s.r || ""; const L = num(s.rl), R = num(s.rr); s.r = L && R ? String(Math.min(L, R)) : String(L || R || ""); }
+    save(); }
   if (t.dataset.note != null){ const v = t.value.trim(); if (v) state.notes[t.dataset.note] = t.value; else delete state.notes[t.dataset.note]; save(); }
   if (t.dataset.dname != null){ const v = t.value.replace(/[<>&"'`\\]/g, ""); if (v !== t.value) t.value = v; state.days[+t.dataset.dname].name = v; save(); }
   if (t.id === "aiAskIn" && review && review.ai) review.ai.ask = t.value;
@@ -3796,14 +3859,14 @@ document.addEventListener("change", e => {
 });
 document.addEventListener("keydown", e => {
   if (e.key === "Enter" && e.target.dataset && e.target.dataset.f){ e.preventDefault(); const f = e.target.dataset.f, x = e.target.dataset.x, s = e.target.dataset.s;
-    const next = f === "w" ? document.getElementById(`r-${x}-${s}`) : null; if (next) next.focus(); else e.target.blur(); }
+    const next = f === "w" ? document.getElementById(`r-${x}-${s}`) : f === "rl" ? document.getElementById(`rr-${x}-${s}`) : null; if (next) next.focus(); else e.target.blur(); }
 });
 
 // remember which collapsible panels are open, since every tap re-renders the page
 document.addEventListener("toggle", e => { const id = e.target.id; if (id === "goalsPanel") goalsOpen = e.target.open; if (id === "pastBlocks") pastOpen = e.target.open; if (id === "restorePanel") restoreOpen = e.target.open; if (id === "calPanel") calOpen = e.target.open; if (id === "cdEdit") cdEditOpen = e.target.open; }, true);
 
 if (state.timer && Date.now() - state.timer.end > 60000) state.timer = null;
-migrate(); save(); readCalOffer();
+migrate(); save(); readCalOffer(); dailySnap();
 render();
 if ("serviceWorker" in navigator && window.isSecureContext && location.protocol.startsWith("http"))
   navigator.serviceWorker.register("sw.js").then(() => navigator.serviceWorker.ready).then(() => { offlineReady = true; if (state.tab === "program") render(); }).catch(() => {});
