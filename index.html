@@ -667,6 +667,7 @@ function migrate(){
   if (!state.rate) state.rate = {};
   if (!state.uni) state.uni = {};
   if (!state.base) state.base = {};
+  if (!Array.isArray(state.saved)) state.saved = [];
   if (!state.aiPlan) state.aiPlan = { depth:"standard", research:false };
   if (!state.block){
     const ids = new Set(state.days.map(d => d.id)), first = state.sessions.find(s => ids.has(s.dayId));
@@ -1240,7 +1241,9 @@ function pinTimer(){
 if (window.visualViewport){ ["resize","scroll"].forEach(ev => visualViewport.addEventListener(ev, pinTimer)); }
 ["scroll","orientationchange"].forEach(ev => window.addEventListener(ev, pinTimer, { passive:true }));
 document.addEventListener("focusout", () => { pinTimer(); setTimeout(pinTimer, 120); setTimeout(pinTimer, 400); });
+let openAfter = [];
 function afterRender(){
+  openAfter.forEach(id => { const d = document.getElementById(id); if (d && !d.open) d.open = true; }); openAfter = [];
   pinTimer();
   document.querySelectorAll("img[data-pid]").forEach(async el => { const u = await purl(el.dataset.pid); if (el.isConnected){ if (u) el.src = u; else el.alt = "Photo not on this phone"; } });
   document.querySelectorAll("canvas[data-lines]").forEach(drawLined);
@@ -1606,7 +1609,7 @@ document.addEventListener("visibilitychange", () => { keepAwake(); if (document.
 function render(){
   const app = document.getElementById("app");
   const ae = document.activeElement, focusId = ae && ae.id, sel = ae && ae.selectionStart;
-  const y = window.scrollY;
+  const y = window.scrollY; openAfter = [...document.querySelectorAll("details[open][id]")].map(d => d.id);   // sections you had open stay open
   const keep = document.querySelector(".modal.keep"), keepLbl = keep && keep.getAttribute("aria-label"), keepTop = keep ? keep.querySelector(".mb").scrollTop : 0;
   const tabs = [["train","Train"],["body","Body"],["program","Program"],["history","History"],["progress","Progress"]];
   app.innerHTML = `<div class="top"><div class="brand">${LOGO}<h1 class="grow">Iron Log</h1>${state.active&&state.tab!=="train"?`<button class="small" data-act="tab" data-v="train" id="backToSess" style="background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:800">● In workout</button>`:""}</div>
@@ -1657,7 +1660,34 @@ function trainView(){
   const wk = state.sessions.filter(s => s.end > Date.now() - 7*dayMs).length;
   return (calOffer ? calOfferView() : "") + blockCard() + nudges() + cardioCard() + `<div class="panel"><div class="row"><h2 class="grow">Which day is it?</h2><span class="hint num">${plural(wk,"workout")} this week</span></div><div class="days">${cards}</div></div>` + coachCard() + quickStart();
 }
-function quickStart(){ return `<button class="ghost" data-act="startEmpty" id="startEmpty">Start an empty workout</button>`; }
+// ---------- Saved workouts ----------
+// Named workouts you keep outside your program (hotel gym, travel, a quick day). Starting one doesn't change your program
+// or what's up next. Targets still come from each exercise's history.
+const toSavedItems = items => items.map(it => { const x = exById(it.ex), k = klass(x), D = DEFAULTS[k] || DEFAULTS.comp;
+  const n = it.sets && Array.isArray(it.sets) ? it.sets.filter(q => q.tag !== "W").length || it.targetSets || 3 : it.sets || 3;
+  return { ex:it.ex, sets:Math.max(1, Math.min(8, n)), lo:it.lo || D.lo, hi:it.hi || D.hi, rest:it.rest || restFor(x), ss:!!it.ss }; }).filter(it => it.ex);
+function saveWorkout(items, name, replaceId){
+  const clean = toSavedItems(items); if (!clean.length){ showToast("Add an exercise first."); return; }
+  if (clean.length) clean[clean.length - 1].ss = false;
+  const t = replaceId && state.saved.find(z => z.id === replaceId);
+  if (t){ t.items = clean; t.updated = Date.now(); showToast(`Updated “${t.name}”.`); }
+  else { const nm = (name || "").trim().slice(0, 40); if (!nm) return; state.saved.push({ id:uid(), name:nm, items:clean, made:Date.now() }); showToast(`Saved “${nm}”. Start it from the Train tab.`); }
+  save(); render();
+}
+function askName(def){ const v = window.prompt("Name this workout", def || ""); return v == null ? null : v.trim(); }
+function savedPanel(){
+  const S = state.saved;
+  if (!S.length) return `<p class="hint" style="margin:4px 4px 0">💼 Traveling or at a different gym? Save any workout (from a workout in progress, History, or a program day) and start it here any time.</p>`;
+  return `<div class="panel"><div class="row"><h2 class="grow">💼 Saved workouts</h2><span class="hint">Doesn't change your program</span></div>
+    ${S.map((t, i) => { const mus = [...new Set(t.items.map(it => exById(it.ex).m))].slice(0, 4).join(", "), last = [...state.sessions].reverse().find(z => z.dayId === "saved:" + t.id);
+      return `<div class="daycard"><span class="dn">${esc(t.name)}</span><span class="dm">${plural(t.items.length, "exercise")}${mus ? ` · ${esc(mus)}` : ""} · ${last ? `last done ${agoTxt(last.end)}` : "not done yet"}</span>
+        <button class="go" data-act="startSaved" data-i="${i}" id="sv-start-${i}">Start</button>
+        <details style="grid-column:1/-1" id="svdet-${esc(t.id)}"><summary class="hint" style="cursor:pointer">Exercises & options</summary>
+          <ol class="hint" style="margin:6px 0 8px 18px">${t.items.map((it, j) => `<li>${esc(exById(it.ex).n)} · ${it.sets} × ${it.lo}–${it.hi}${it.ss && t.items[j+1] ? " · 🔗 superset with next" : ""}</li>`).join("")}</ol>
+          <div class="btnrow"><button class="small" data-act="svRename" data-i="${i}" id="sv-ren-${i}">Rename</button><button class="small danger" data-act="svDel" data-i="${i}" id="sv-del-${i}">${confirmKey === "sv" + i ? "Tap again to delete" : "Delete"}</button></div>
+          <p class="hint" style="font-size:12.5px">To change the exercises, start it, adjust it, and tap “Update” at the bottom of the workout.</p></details></div>`; }).join("")}</div>`;
+}
+function quickStart(){ return savedPanel() + `<button class="ghost" data-act="startEmpty" id="startEmpty">Start an empty workout</button>`; }
 
 // Where you are in the block, and the prompt to refresh when it's done (or early, if most lifts have stalled)
 function blockCard(){
@@ -1717,7 +1747,7 @@ function sessionView(){
       ${it.cal ? calBox(it, ex, xi) : ""}
       <div class="btnrow"><button class="small" data-act="addSet" data-x="${xi}" id="addset-${xi}">+ Add set</button><button class="small ghost" data-act="rmSet" data-x="${xi}" id="rmset-${xi}" ${it.sets.length<=1?"disabled":""}>Remove last set</button>
         <button class="small ghost" data-act="restTap" data-x="${xi}" id="rest-${xi}">⏱ Rest ${fmtTime(it.rest)}</button></div>
-      <details class="more"><summary>Form tip, notes &amp; options</summary>
+      <details class="more" id="more-${esc(it.ex)}-${xi}"><summary>Form tip, notes &amp; options</summary>
         <p class="tip">💡 ${esc(formTip(ex))}</p>
         <p class="tip">⏱ ${REST_TIP[klass(ex)]}</p>
         <label class="lbl2" for="note-${xi}">My notes for ${esc(ex.n)} (saved for next time)</label>
@@ -1741,6 +1771,7 @@ function sessionView(){
     ${w ? `<p class="hint" style="margin:-6px 4px 0">${w.intro ? "Learning week: one set fewer per exercise. Stop 3–4 reps short of failure and find your working weights." : w.week >= w.weeks ? "Last week of the block: take working sets to 0–1 reps short of failure." : `This week: stop working sets ${w.rir[0]}–${w.rir[1]} reps short of failure.`}</p>` : ""}
     ${items || `<p class="hint">No exercises yet. Add some below.</p>`}
     <button data-act="pick" data-target="session" id="addExSess">+ Add exercise</button>
+    <div class="btnrow">${a.savedId && state.saved.some(z => z.id === a.savedId) ? `<button class="small" data-act="updateSaved" id="updateSaved">💾 Update “${esc(state.saved.find(z => z.id === a.savedId).name)}”</button>` : ""}<button class="small ghost" data-act="saveActive" id="saveActive">💾 Save as a new saved workout</button></div>
     ${aiKey ? `<button data-act="coSess" id="coSess">🤖 Ask the coach</button>` : ""}
     ${checkPanel()}${reachPanel()}
     ${oreach ? "" : `<button class="primary" data-act="finish" id="finish">Finish workout</button>`}
@@ -1805,7 +1836,8 @@ function programView(){
       <span class="iconbtns"><button id="du-${di}" data-act="dayUp" data-d="${di}" aria-label="Move day up" ${di===0?"disabled":""}>↑</button><button id="dr-${di}" data-act="dayRm" data-d="${di}" aria-label="Delete day">${confirmKey==="dayrm"+di?"Delete?":"✕"}</button></span></div>${d.when ? `<p class="hint" style="margin-top:-6px">📅 ${esc(d.when)} · about ${estMins(d.items)} min</p>` : `<p class="hint" style="margin-top:-6px">About ${estMins(d.items)} min</p>`}
       ${items || `<p class="hint">No exercises yet.</p>`}
       ${ssFixPanel(d, di)}
-      <button data-act="pick" data-target="day" data-d="${di}" id="addEx-${di}">+ Add exercises</button></div>`;
+      <button data-act="pick" data-target="day" data-d="${di}" id="addEx-${di}">+ Add exercises</button>
+      ${d.items.length ? `<button class="small ghost" data-act="saveDay" data-d="${di}" id="svd-${di}">💾 Save a copy to Saved workouts</button>` : ""}</div>`;
   }).join("");
   const tpl = `<details class="panel" ${state.days.length?"":"open"}><summary style="cursor:pointer;font-weight:800">Start from a template</summary>
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">${Object.entries(TEMPLATES).map(([k,t])=>`<button style="text-align:left" data-act="tpl" data-v="${k}" id="tpl-${k}"><b>${t.name}</b><br><span class="hint">${t.note} ${t.days.map(d=>d.name).join(" · ")}</span></button>`).join("")}
@@ -1927,7 +1959,8 @@ function historyView(){
   if (!state.sessions.length) return `<div class="panel"><h2>No workouts yet</h2><p class="hint">Finished workouts show up here with every set you did.</p>${aiKey ? `<button data-act="plOpen" id="plOpenH">📷 Log a workout from a photo</button>` : ""}</div>`;
   const list = [...state.sessions].map((s,i)=>[s,i]).reverse().map(([s,i]) => `<div class="sess"><div class="sh"><b>${esc(s.dayName)}</b><span class="sm">${fmtDate(s.end)}</span></div>
     <span class="sm num">${fmtTime((s.end-s.start)/1000)} · ${plural(setsOf(s),"set")} · ${volumeOf(s).toLocaleString()} ${U()}${s.prs&&s.prs.length?` · 🏆 ${plural(s.prs.length,"PR")}`:""}${s.ready && s.ready.level !== "normal" ? ` · felt ${READY_WORD[s.ready.level] || s.ready.level}` : ""}${s.from === "photo" ? " · 📷 from a photo" : ""}</span>
-    <details><summary>Details</summary>${s.items.map((it, ii) => ({ it, ii })).filter(({ it }) => it.sets.some(x=>x.done)).map(({ it, ii })=>{ const ex = exById(it.ex); return `<div class="ex num"><b>${esc(ex.n)}:</b> ${it.sets.filter(x=>x.done).map(x=>fmtSet(x, ex.t)).join(", ")}${it.first ? ` · started ${SIDE[it.first].toLowerCase()}` : ""} <button class="chip" style="padding:2px 8px;font-size:12px" data-act="histPain" data-sid="${esc(s.id)}" data-i="${ii}" id="hp-${esc(s.id)}-${ii}" aria-pressed="${!!it.pain}">😣 ${it.pain ? "Hurt" : "Hurt?"}</button></div>`; }).join("") || `<div class="ex hint">No completed sets.</div>`}
+    <details id="hdet-${esc(s.id)}"><summary>Details</summary>${s.items.map((it, ii) => ({ it, ii })).filter(({ it }) => it.sets.some(x=>x.done)).map(({ it, ii })=>{ const ex = exById(it.ex); return `<div class="ex num"><b>${esc(ex.n)}:</b> ${it.sets.filter(x=>x.done).map(x=>fmtSet(x, ex.t)).join(", ")}${it.first ? ` · started ${SIDE[it.first].toLowerCase()}` : ""} <button class="chip" style="padding:2px 8px;font-size:12px" data-act="histPain" data-sid="${esc(s.id)}" data-i="${ii}" id="hp-${esc(s.id)}-${ii}" aria-pressed="${!!it.pain}">😣 ${it.pain ? "Hurt" : "Hurt?"}</button></div>`; }).join("") || `<div class="ex hint">No completed sets.</div>`}
+      <button class="small" style="margin-top:6px" data-act="saveHist" data-sid="${esc(s.id)}" id="svh-${i}">💾 Save as a workout</button>
       <button class="small danger" style="margin-top:6px" data-act="delSess" data-i="${i}" id="dels-${i}">${confirmKey==="dels"+i?"Tap again to delete":"Delete this workout"}</button></details></div>`).join("");
   return `<div class="panel"><div class="row"><h2 class="grow">History</h2><span class="hint num">${plural(state.sessions.length,"workout")}</span></div>${aiKey ? `<button class="small" data-act="plOpen" id="plOpenH">📷 Log a past workout from a photo</button>` : ""}${list}</div>`;
 }
@@ -3259,12 +3292,14 @@ function buildSessionItem(tpl, ctx, exactSets){
   const sets = Array.from({length:n}, (_,k) => ({ w: t.w !== "" ? String(t.w) : (t.kind === "new" ? "" : lw), r: t.reps[k] !== "" && t.reps[k] != null ? String(t.reps[k]) : "", done:false }));
   return { ex:tpl.ex, sets, targetSets:n, lo:tpl.lo, hi:tpl.hi, rest:tpl.rest || DEFAULTS[klass(ex)].rest, ss:!!tpl.ss, target:{ w:t.w, reps:t.reps, kind:t.kind, why:t.why, ...(t.flag ? { flag:t.flag } : {}), ...(t.from != null ? { from:t.from, fromReps:t.fromReps } : {}) } };
 }
+function savedDay(id){ const t = state.saved.find(z => z.id === id); return t ? { id:"saved:" + t.id, name:t.name, items:t.items.map(it => ({ ...it })), savedId:t.id } : null; }
 function startSession(day, rd){
   const ctx = sessionCtx(day ? day.id : null);
   if (rd) applyReady(ctx, rd.level);
   if (lightOn()){ ctx.light = true; ctx.lighter = true; ctx.rir = ctx.rir.map(v => Math.min(4, v + 2)); }
   state.active = { id:uid(), dayId: day ? day.id : null, dayName: day ? day.name : "Workout", start:Date.now(), items: day ? day.items.map(it => buildSessionItem(it, ctx)) : [], lastDone:null,
     wk: day ? { week:ctx.week, weeks:ctx.weeks, intro:ctx.intro, rir:ctx.rir } : null, ready: rd || null, ...(ctx.light ? { light:true } : {}) };
+  if (day && day.savedId) state.active.savedId = day.savedId;
   if (day) pickCalibration(state.active, ctx, rd);
   state.tab = "train"; review = null; save(); render(); window.scrollTo(0,0); keepAwake();
 }
@@ -3380,7 +3415,7 @@ document.addEventListener("click", e => {
     case "fatigueLater": state.fatigueSnooze = Date.now() + 5*dayMs; save(); render(); break;
     case "calGuess": { const it = state.active.items[x], s = it.sets[it.sets.length - 1]; s.guess = +b.dataset.v; save(); render(); break; }
     case "calToggle": state.calOn = state.calOn === false; save(); render(); break;
-    case "rdStart": { const r = ready; ready = null; startSession(state.days[r.i], { ...r.a, level:readyLevel(r.a) }); break; }
+    case "rdStart": { const r = ready; ready = null; startSession(r.saved ? savedDay(r.saved) : state.days[r.i], { ...r.a, level:readyLevel(r.a) }); break; }
     case "askReady": state.askReady = b.dataset.v === "1"; save(); render(); break;
     case "bar": state.bar = +b.dataset.v; save(); render(); break;
     case "addWU": { const it = state.active.items[x], ex = exById(it.ex), work = it.sets.find(q => q.tag !== "W"), ws = warmupSets(ex, num(work && work.w) || 0);
@@ -3400,6 +3435,13 @@ document.addEventListener("click", e => {
     case "phAnalyze": { const ph = photos().find(q => q.id === b.dataset.id); if (ph){ delete ph.err; analyzePhoto(ph); } break; }
     case "cmpPose": cmp.pose = b.dataset.v; cmp.a = cmp.b = null; render(); break;
     case "startEmpty": startSession(null); break;
+    case "startSaved": { const t = state.saved[+b.dataset.i]; if (!t) break; if (state.askReady){ ready = { i:-1, saved:t.id, a:{ sleep:"730-815", sore:"2", energy:"3" } }; render(); } else startSession(savedDay(t.id)); break; }
+    case "svRename": { const t = state.saved[+b.dataset.i], v = askName(t.name); if (v){ t.name = v.slice(0, 40); save(); render(); } break; }
+    case "svDel": { const i = +b.dataset.i; confirmThen("sv" + i, () => { state.saved.splice(i, 1); save(); render(); }); break; }
+    case "saveActive": { const a = state.active, v = askName(a.dayName && a.dayName !== "Workout" ? a.dayName : ""); if (v) saveWorkout(a.items, v); break; }
+    case "updateSaved": saveWorkout(state.active.items, "", state.active.savedId); break;
+    case "saveHist": { const ss = state.sessions.find(z => z.id === b.dataset.sid); if (!ss) break; const v = askName(ss.dayName); if (v) saveWorkout(ss.items.filter(it => it.sets.some(q => q.done)), v); break; }
+    case "saveDay": { const d = state.days[+b.dataset.d], v = askName(`${d.name} (copy)`); if (v) saveWorkout(d.items, v); break; }
     case "side": { const it = state.active.items[x]; it.first = b.dataset.v; save(); render(); break; }
     case "uniToggle": { const it = state.active.items[x], ex = exById(it.ex), on = !isUni(ex); if (on === UNI_RE.test(ex.n)) delete state.uni[ex.id]; else state.uni[ex.id] = on; if (!on) delete it.first;
       save(); render(); showToast(on ? `${ex.n}: tracking which side you start with.` : `${ex.n}: both sides together.`); break; }
