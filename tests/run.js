@@ -25,6 +25,9 @@ const ok = (cond, name, detail) => { if (cond){ passes++; } else { fails++; cons
   t = await T(PD, [{ s:[[140,10],[140,9],[140,8]], gap:7 }]); ok(t.kind === 'down' && t.w < 140, 'long layoff restarts lighter', t);
   t = await T(PD, [{ s:[[140,12],[140,10],[140,9]], gap:4 }]); ok(t.kind === 'same' && t.w === 140, '3-5 weeks off holds the weight, no jump', t);
   t = await T(PD, [{ s:[[140,12],[140,10],[140,9]], gap:2 }]); ok(t.kind === 'up', '2 weeks off can still move up', t);
+  t = await T(PD, [{ s:[[140,10],[140,9],[140,8]], gap:4 }]); ok(t.kind === 'same' && t.w === 140 && t.reps[0] === 11, '3-5 weeks off: reps can still go up', t);
+  t = await T(PD, [{ s:[[140,11],[140,10],[140,9]], gap:4 }, { s:[[140,12],[140,10],[140,9]], gap:4 }]); ok(t.kind === 'up', 'a lift done every 4 weeks still moves up', t);
+  t = await T(PD, [{ s:[[140,12],[140,10],[140,9]], gap:4, pain:true }]); ok(t.kind === 'deload', 'pain wins over the layoff hold', t);
   t = await T(PD, Array(4).fill(S([140,10],[140,9],[140,8]))); ok(t.flag === 'reset', 'stall resets', t);
   t = await T(PD, Array(4).fill(S([140,10,3],[140,9,3],[140,8,3]))); ok(t.flag === 'push', 'stall with reps left says push', t);
   t = await T(PD, [{ s:[[140,12],[140,10],[140,9],[140,7]], extra:true }]); ok(t.kind === 'up', 'tired 4th set does not block a jump', t);
@@ -89,14 +92,14 @@ const ok = (cond, name, detail) => { if (cond){ passes++; } else { fails++; cons
   ok(rts[0] < rts[1] && rts[1] < rts[2] && rts[3] === 5, 'load chart is monotonic and invertible', rts);
   // muscle feedback: not sore + no progress → one more set; still sore → one fewer; on a cut only priority muscles get more
   const fbr = await p.evaluate(() => { const F = n => lib().find(e => e.n === n).id, S = (w, r) => ({ w:String(w), r:String(r), done:true }), W = 7*864e5, out = {};
-    const run = (fb, phase, prio, prevFb) => { expoCache.key = 'x'; state.active = null; state.light = null; state.phase = phase; state.goals.priority = prio || [];
+    const run = (fb, phase, prio, prevFb, better) => { expoCache.key = 'x'; state.active = null; state.light = null; state.phase = phase; state.goals.priority = prio || [];
       state.days = [{ id:'d1', name:'U', items:[{ ex:F('Incline Dumbbell Press'), sets:3, lo:8, hi:12, rest:120 }, { ex:F('Wide-Grip Lat Pulldown'), sets:3, lo:8, hi:12, rest:120 }] }];
       state.block = { id:'b', n:2, start:Date.now() - W - 864e5, weeks:6, intro:false, scheme:0 };
       state.sessions = [2,1].map(k => ({ id:'f'+k, dayId:'d1', start:Date.now()-k*W*.5-3600e3, end:Date.now()-k*W*.5, items:[{ ex:F('Incline Dumbbell Press'), sets:[S(60,10),S(60,9),S(60,9)] }, { ex:F('Wide-Grip Lat Pulldown'), sets:[S(140,10),S(140,9),S(140,9)] }] }));
-      state.sessions[1].fb = fb; if (prevFb) state.sessions[0].fb = prevFb; startSession(state.days[0], null); return state.active.items.map(it => it.sets.length).join(','); };
+      if (better) state.sessions[1].items[0].sets = [S(60,11),S(60,10),S(60,10)]; state.sessions[1].fb = fb; if (prevFb) state.sessions[0].fb = prevFb; startSession(state.days[0], null); return state.active.items.map(it => it.sets.length).join(','); };
     const C0 = { m:{ Chest:{ sore:0 } } };
     out.base = run(null, 'maintain'); out.once = run({ m:{ Chest:{ sore:0 }, Back:{ sore:2 } } }, 'maintain'); out.fb = run({ m:{ Chest:{ sore:0 }, Back:{ sore:2 } } }, 'maintain', null, C0); out.cut = run(C0, 'cut', null, C0); out.cutPrio = run(C0, 'cut', ['Chest'], C0);
-    out.pump = run({ m:{ Chest:{ sore:0 } }, x:{ [F('Incline Dumbbell Press')]:{ stim:0 } } }, 'maintain');
+    out.pump = run({ m:{ Chest:{ sore:0 } }, x:{ [F('Incline Dumbbell Press')]:{ stim:0 } } }, 'maintain', null, C0, true);
     state.active = null; return out; });
   ok(fbr.base === '3,3' && fbr.once === '3,2' && fbr.fb === '4,2' && fbr.cut === '3,3' && fbr.cutPrio === '4,3' && fbr.pump === '3,3', 'muscle feedback: sore removes at once, adding needs two sessions, pump alone never adds', JSON.stringify(fbr));
   // on a cut, a flat lift is held, not reset

@@ -36,6 +36,7 @@
   --slab:#2a3038; --slab-done:#1f7a4d; --on-good:#111316; --tagW:#7aa7ff; --tagD:#f0a050;
 }
 *{box-sizing:border-box}
+/* boxes you type in never go under 16px: iOS zooms the page into any smaller one when it gets focus */
 /* text follows the iPhone's text-size setting (iOS body text is 17px by default, so sizes are in 17ths of a rem);
    elsewhere the root stays at 17px. The biggest numbers are capped so they can't push the layout sideways. */
 html{font-size:17px;-webkit-text-size-adjust:100%}
@@ -66,8 +67,8 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .danger{color:var(--bad);border-color:var(--bad)}
 .row{display:flex;align-items:center;gap:10px}
 .grow{flex:1;min-width:0}
-input[type=text],input[type=search],input[type=time],select,textarea{font:inherit;width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
-textarea{min-height:90px;resize:vertical;font-size:0.765rem}
+input[type=text],input[type=search],input[type=time],select,textarea{font:inherit;font-size:max(16px, 1em);width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
+textarea{min-height:90px;resize:vertical;font-size:max(16px, 0.765rem)}
 .hint{font-size:0.824rem;color:var(--muted);margin:0}
 .btnrow{display:flex;gap:8px;flex-wrap:wrap}
 .btnrow>*{flex:1}
@@ -106,7 +107,7 @@ textarea{min-height:90px;resize:vertical;font-size:0.765rem}
 .setrow{display:grid;grid-template-columns:28px 1fr 1fr 52px;gap:8px;align-items:center;padding:4px;border-radius:10px;scroll-margin-top:96px;scroll-margin-bottom:calc(var(--dockH, 0px) + 16px)}
 .setrow.done{background:var(--done)}
 .setrow .sn{font-weight:800;text-align:center;color:var(--muted)}
-.setrow input{text-align:center;font-size:1.118rem;font-weight:700;padding:9px 4px}
+.setrow input{text-align:center;font-size:max(16px, 1.118rem);font-weight:700;padding:9px 4px}
 .fbpanel{background:rgba(255,255,255,.12);border-radius:12px;padding:10px 12px;text-align:left}
 .fbrow{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;margin-top:6px;font-size:0.824rem;font-weight:600}
 .fbrow>span:first-child{min-width:84px}.fbx>span:first-child{flex-basis:100%}
@@ -119,7 +120,7 @@ textarea{min-height:90px;resize:vertical;font-size:0.765rem}
 .svb{display:flex;gap:4px}.svb [aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}.svb .small{padding:6px 10px;min-width:36px}
 .fold{margin:0}.fold>.foldsum{cursor:pointer;font-weight:800;padding:12px 4px;list-style-position:inside}.fold[open]>.foldsum{padding-bottom:6px}
 .setrow .lr{display:grid;grid-template-columns:1fr 1fr;gap:4px;min-width:0}
-.setrow .lr input{font-size:1rem;padding:9px 2px;min-width:0}
+.setrow .lr input{font-size:max(16px, 1rem);padding:9px 2px;min-width:0}
 .setrow .ck{height:46px;padding:0;font-size:1.294rem;font-weight:800}
 .setrow.done .ck{background:var(--good);border-color:var(--good);color:var(--on-good)}
 .setlbl{display:grid;grid-template-columns:28px 1fr 1fr 52px;gap:8px;font-size:0.647rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700;text-align:center;padding:0 4px}
@@ -135,7 +136,7 @@ textarea{min-height:90px;resize:vertical;font-size:0.765rem}
 .setmeta{display:flex;flex-wrap:wrap;align-items:center;gap:4px}
 .more summary{cursor:pointer;padding:10px 0;font-size:0.824rem;font-weight:700;color:var(--accent-text)}
 .more .tip{font-size:0.824rem;margin:8px 0 0;max-width:62ch}
-.more textarea{min-height:56px;font-size:0.824rem;margin-top:4px}
+.more textarea{min-height:56px;font-size:max(16px, 0.824rem);margin-top:4px}
 .lbl2{display:block;font-size:0.706rem;font-weight:700;color:var(--muted);margin-top:10px}
 .notepre{font-size:0.794rem;font-style:italic;color:var(--muted)}
 .exc.ss{border-left:5px solid var(--accent)}
@@ -184,7 +185,7 @@ body:has(#app input:focus) .timer .tb, body:has(#app input:focus) .timer .lbl{di
 .mini button{width:34px;height:36px;padding:0;font-size:1.059rem}
 .mini span{min-width:36px;text-align:center;font-weight:800;font-size:0.941rem}
 .reps{display:flex;align-items:center;gap:4px}
-.reps input{text-align:center;padding:8px 2px;font-weight:700;font-size:0.941rem;width:100%;min-width:0}
+.reps input{text-align:center;padding:8px 2px;font-weight:700;font-size:max(16px, 0.941rem);width:100%;min-width:0}
 .iconbtns{display:flex;gap:4px;margin-left:auto}
 .iconbtns{gap:8px}
 .iconbtns button{padding:4px 9px;font-size:0.824rem;min-width:44px;min-height:44px}
@@ -268,9 +269,9 @@ table.st th:first-child,table.st td:first-child{text-align:left;white-space:norm
 /* body: weight, protein, photos */
 .bnum{font-family:"Barlow Condensed",sans-serif;font-size:min(2rem, 44px);font-weight:800;line-height:1}
 .bin{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center}
-.bin input{font-size:1.059rem;font-weight:700;text-align:center}
+.bin input{font-size:max(16px, 1.059rem);font-weight:700;text-align:center}
 .bdate{display:flex;gap:6px;align-items:center}
-.bdate input{flex:1;min-width:0;font-size:0.941rem}
+.bdate input{flex:1;min-width:0;font-size:max(16px, 0.941rem)}
 .bdate .chip{flex:none;padding:7px 10px}
 .bdate .chip[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
 .wlist{display:flex;flex-direction:column}
@@ -301,7 +302,7 @@ input[type=date]{font:inherit;width:100%;max-width:220px;min-height:44px;padding
 .plsets{display:flex;flex-wrap:wrap;gap:6px}
 .plset{display:inline-flex;align-items:center;gap:4px;padding:4px 6px;border-radius:10px;background:var(--surface-2);font-size:0.765rem;color:var(--muted)}
 .plset b{min-width:14px;text-align:center}
-.plset input[type=text]{width:62px;padding:6px 4px;text-align:center;font-size:0.941rem;font-weight:700}
+.plset input[type=text]{width:62px;padding:6px 4px;text-align:center;font-size:max(16px, 0.941rem);font-weight:700}
 .pulse{animation:pulse 1.2s ease-in-out infinite}
 @keyframes pulse{50%{opacity:.25}}
 @media (prefers-reduced-motion:reduce){.pulse,.timer.pop .in{animation:none}}
@@ -1160,8 +1161,10 @@ function targetFor(tpl, ctx){
   const repsAt = w => rtfAt(e1, w + bs) - rir[1];   // reps at plates w (plus the machine's starting resistance), leaving this week's reserve
   if (ctx.intro){ const w = pct90(); return fill(w, Math.max(lo, Math.min(hi, repsAt(w))), "deload", `Learning week: about 90% of ${ago} (${fmtW(W)}). Stop 3–4 reps short of failure.`); }
   if (away >= 6){ const w = pct90(); return fill(w, lo, "down", `It's been ${away} weeks since you did this. Start around 90% of last time and build back up.`); }
-  // 3–5 weeks away: strength mostly holds for about 4 weeks off, so keep the weight but don't jump yet; match last time first
-  if ((Date.now() - latest.at) >= 21*dayMs) return fill(W, topR.map(r => Math.max(lo, Math.min(hi, r))), "same", `It's been ${away} weeks since you did this. Same weight as last time (${fmtW(W)}); match your reps before moving up.`);
+  // 3–5 weeks away: strength mostly holds for about 4 weeks off, so the weight stays and only a jump waits (reps can still
+  // go up). A lift you only do every few weeks anyway isn't held back each time.
+  const prevAt = H.length >= 2 ? H[H.length-2].at : null, layoff = Date.now() - latest.at >= 21*dayMs && !(prevAt && latest.at - prevAt >= 21*dayMs);
+  if (layoff && (ready || (ctx.ready === "great" && readyAt(hi - 1)))) return fill(W, topR.map(r => Math.max(lo, Math.min(hi, r))), "same", `It's been ${away} weeks since you did this. Same weight as last time (${fmtW(W)}); match your reps before moving up.`);
   if (ready && (ctx.ready === "rough" || ctx.ready === "off"))
     return ctx.ready === "rough" ? fill(W, topR, "same", `Rough day: hold at ${fmtW(W)} and match ${ago}. The jump can wait for a better day.`)
       : fill(W, topR.map(r => r + 1), "same", `You've earned a jump, but not on an off day. Stay at ${fmtW(W)} and add a rep.`);
@@ -1368,7 +1371,8 @@ const FLAG_TXT = { "arms-out":"Your arms were held well away from your body, whi
 const REASON_TXT = { "no-person":"No person found in this photo.", "several-people":"More than one person is in the photo, so it wasn't measured.", "cut-off":"Your shoulders and hips need to be in the photo. Step back so you're in frame from head to knees.", unclear:"Couldn't get a clear outline. Stand square to the camera (or exactly side-on), arms slightly out, in even light.", unsupported:"This phone can't run the photo analysis." };
 // the photo a new one is compared with: the latest earlier one of that pose that measured cleanly (no pose or clothing
 // warnings) and isn't the first of a calibration pair
-function prevOf(p){ return photos().filter(q => q.pose === p.pose && q.at < p.at && q.a && q.a.ok && !(q.a.flags || []).length && q.cal !== 1).sort((a, b) => b.at - a.at)[0]; }
+function prevOf(p){ const L = photos().filter(q => q.pose === p.pose && q.at < p.at && q.a && q.a.ok && q.cal !== 1).sort((a, b) => b.at - a.at);
+  return L.find(q => !(q.a.flags || []).length) || L[0]; }   // a flagged one only when there's no clean one
 // Photo noise: two photos taken back to back (step away and back between them) show how much a reading moves with
 // nothing changed. A change smaller than that, and never less than 2%, is treated as noise.
 const pnoise = () => (state.body.pnoise || (state.body.pnoise = {}));
@@ -2371,7 +2375,7 @@ function settingsView(){
     <details id="restorePanel" ${restoreOpen ? "open" : ""}><summary style="cursor:pointer;font-weight:700">Restore from a backup</summary>
       <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px"><button data-act="restoreFile" id="restoreFileBtn">${confirmKey==="restorefile"?"Tap again to replace everything with a backup file":"📁 Restore from a file"}</button>
       <button data-act="mergeFile" id="mergeFileBtn">🔀 Merge a backup file into this phone</button>
-      <span class="hint">Merge adds workouts, body log days and photos this phone doesn't have (from another device or an older backup) and changes nothing that's already here.</span>
+      <span class="hint">Merge adds workouts, body log days and photos this phone doesn't have (from another device or an older backup) and changes nothing that's already here. Anything you deleted here since that backup comes back.</span>
       <span class="hint">Or paste a copied backup:</span><textarea id="restoreBox" placeholder="Paste your backup here" aria-label="Backup text">${esc(restoreText)}</textarea>
       <button data-act="restore" id="restore">${confirmKey==="restore"?"Tap again to replace everything with this backup":"Restore"}</button></div></details>
     ${backupBox!=null?`<textarea id="backupOut" readonly aria-label="Your backup">${esc(backupBox)}</textarea><p class="hint">Couldn't copy automatically. Select all of the text above and copy it into a note or email to yourself.</p>`:""}
@@ -2404,7 +2408,7 @@ function blockCompare(){
   if (B.length < 2) return "";
   const cols = B.map(b => { const S = blockSessions(b).filter(x => !x.light), end = b.end || Date.now(), wks = Math.max(1, (end - b.start) / (7*dayMs)), best = {}, sets = {};
     S.forEach(x => x.items.forEach(it => { const ex = exById(it.ex), work = it.sets.filter(q => q.done && q.tag !== "W");
-      work.forEach(q => { const v = ex.t === "time" ? null : e1rm((num(q.w) || 0) + baseOf(ex), num(q.r)); if (v) best[it.ex] = Math.max(best[it.ex] || 0, v - baseOf(ex)); });
+      work.forEach(q => { const v = ex.t === "time" || isAssisted(ex) ? null : e1rm((num(q.w) || 0) + baseOf(ex), num(q.r)); if (v) best[it.ex] = Math.max(best[it.ex] || 0, v - baseOf(ex)); });
       Object.entries(creditOf(ex)).forEach(([m, c]) => { sets[m] = (sets[m] || 0) + c * work.length; }); }));
     const wAt = t => week7("w", t, 2), waAt = t => week7("waist", t, 1);
     return { b, S, wks, best, sets, w0:wAt(addDays(b.start, 6)), w1:wAt(end), wa0:waAt(addDays(b.start, 6)), wa1:waAt(end) }; });
@@ -4039,7 +4043,9 @@ document.addEventListener("click", e => {
           startTimer(tr.sec, `Next: ${exById(next.ex).n} · ${tr.why}`);
         } else startTimer(s.tag === "W" ? Math.min(60, it.rest) : it.rest, prevIt ? `Next round: ${exById(prevIt.ex).n}` : `Next: ${nx && !nx.done ? ex.n : "next exercise"}`); }
       else state.timer = null;
-      save(); render(); showNextSet(x); break;
+      // a card above may shrink to one line on this tap: keep the tapped row where your thumb is, then show the next set
+      { const y0 = b.getBoundingClientRect().top; save(); render(); const nb = document.getElementById(b.id); if (nb){ const d = nb.getBoundingClientRect().top - y0; if (Math.abs(d) > 1) window.scrollBy(0, d); } }
+      showNextSet(x); break;
     }
     case "exOpen": { const it = state.active.items[x]; it.open = !it.open; save(); render(); break; }
     case "tag": { const st = state.active.items[x].sets[+b.dataset.s], order = ["", "W", "D", "F"]; st.tag = order[(order.indexOf(st.tag||"")+1) % 4] || undefined; if (!st.tag) delete st.tag; if (st.tag === "W") delete st.rir; save(); render(); break; }
@@ -4070,7 +4076,7 @@ document.addEventListener("click", e => {
     case "histPain": { const ss = state.sessions.find(z => z.id === b.dataset.sid), it = ss && ss.items[+b.dataset.i]; if (it){ it.pain = !it.pain; save(); render(); if (it.pain) showToast(`Noted. ${exById(it.ex).n} starts about 15% lighter next time.`); } break; }
     case "painToggle": { const it = state.active.items[x]; it.pain = !it.pain; save(); render(); if (it.pain) showToast("Noted. Next time this one starts about 15% lighter."); break; }
     case "fcBack": fcheck = null; render(); break;
-    case "fcFix": { const xi = b.dataset.x, si = b.dataset.s, f = fcheck; fcheck = null; render();
+    case "fcFix": { const xi = b.dataset.x, si = b.dataset.s, f = fcheck; fcheck = null; if (state.active.items[+xi]) state.active.items[+xi].open = true; render();
       const it = state.active.items[+xi], q = it && it.sets[+si], bad = f && f.find(z => z.x == xi && z.s == si), wFirst = bad && /switched|weight|digit\?$/.test(bad.t) && !/reps|longer|no (reps|time)/.test(bad.t);
       const inp = document.getElementById(`${wFirst ? "w" : "r"}-${xi}-${si}`) || document.getElementById(`w-${xi}-${si}`);
       if (inp){ inp.scrollIntoView({ block:"center" }); inp.focus(); inp.select && inp.select(); } break; }
