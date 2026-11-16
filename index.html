@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; media-src 'self' data: blob:; connect-src 'self' data: blob: https://api.anthropic.com https://odml.pa.googleapis.com; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; media-src 'self' data: blob:; connect-src 'self' data: blob: https://api.anthropic.com; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -778,8 +778,8 @@ function load(){ let s = null; try{ s = localStorage.getItem(KEY); return s ? JS
 // Saving: a burst of typing writes once, a third of a second after the last change, and anything pending is written
 // straight away when the app goes to the background or closes. Every day a snapshot of everything goes to the
 // phone's database (the last 10 are kept), and one more is taken before any restore.
-let saveOK = true, saveT = null;
-function saveNow(){ clearTimeout(saveT); saveT = null; if (saveBlocked) return; try{ localStorage.setItem(KEY, JSON.stringify(state)); saveOK = true; }catch(e){ saveOK = false; } }
+let saveOK = true, saveT = null, saveFull = false;
+function saveNow(){ clearTimeout(saveT); saveT = null; if (saveBlocked) return; try{ localStorage.setItem(KEY, JSON.stringify(state)); saveOK = true; }catch(e){ saveOK = false; saveFull = !!e && (e.name === "QuotaExceededError" || e.code === 22 || e.code === 1014); } }
 function save(){ if (typeof expoCache !== "undefined") expoCache.key = ""; clearTimeout(saveT); saveT = setTimeout(saveNow, 300); }
 const flushSave = () => { if (saveT) saveNow(); };
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") flushSave(); });
@@ -1845,7 +1845,7 @@ function drawPage(){
   const tabs = [["train","Train"],["body","Body"],["program","Program"],["history","History"],["progress","Progress"]];
   app.innerHTML = `<div class="top"><div class="brand">${LOGO}<h1 class="grow">Iron Log</h1>${state.active&&state.tab!=="train"?`<button class="small" data-act="tab" data-v="train" id="backToSess" style="background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:800">● In workout</button>`:""}</div>
     <div class="tabs" role="tablist">${tabs.map(([k,l])=>`<button class="tab" role="tab" id="tab-${k}" data-act="tab" data-v="${k}" aria-selected="${state.tab===k}">${l}</button>`).join("")}</div></div>` +
-    (!saveOK ? `<div class="err">This browser isn't letting the app save right now (private browsing?). Your workout will be lost if you close it.</div>` : "") +
+    (!saveOK ? `<div class="err">${saveFull ? "The phone's storage for this app is full, so new changes aren't being saved. Save a backup now (Program → Settings), then delete old photos or history." : "This browser isn't letting the app save right now (private browsing?). Your workout will be lost if you close it."}</div>` : "") +
     (state.tab === "train" ? trainView() : state.tab === "body" ? bodyView() : state.tab === "program" ? programView() : state.tab === "history" ? historyView() : progressView()) +
     (picker ? pickerView() : "") + (swap && !picker ? swapView() : "") + (ready && !picker ? readyView() : "") + (cardioUI && !picker ? cardioView() : "") + (viewPhoto ? photoView() : "") + (coach && !picker ? coachView() : "") + (plog && !picker ? plogView() : "") + (toast ? `<div class="toast" role="status">${esc(toast)}</div>` : "");
   if (keepLbl){ const k = document.querySelector(".modal.keep"); if (k && k.getAttribute("aria-label") === keepLbl) k.querySelector(".mb").scrollTop = keepTop; }

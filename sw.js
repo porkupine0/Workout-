@@ -19,9 +19,10 @@ function page(req){
     const saved = () => caches.match("./index.html", { cacheName:SHELL });
     const finish = r => { if (!done && r){ done = true; resolve(r); } };
     const timer = setTimeout(() => saved().then(finish), 3500);
-    fetch(req).then(res => {
-      if (res.ok){ const copy = res.clone(); caches.open(SHELL).then(c => c.put("./index.html", copy)); }
-      clearTimeout(timer); finish(res);
+    fetch(req.url, { cache:"no-cache", credentials:"same-origin" }).then(res => {
+      clearTimeout(timer);
+      if (res.ok){ const copy = res.clone(); caches.open(SHELL).then(c => c.put("./index.html", copy)); finish(res); }
+      else saved().then(r => finish(r || res));   // a server error page never replaces the working app
     }).catch(() => { clearTimeout(timer); saved().then(r => finish(r || Response.error())); });
   });
 }
