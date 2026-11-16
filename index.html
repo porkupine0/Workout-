@@ -834,6 +834,8 @@ function confirmThen(key, fn){
   clearTimeout(confirmTimer);
   confirmTimer = setTimeout(()=>{ confirmKey = null; softRender(); }, 3500);
 }
+// a toast without redrawing the page, so what's typed in a box stays there
+function noteToast(msg){ showToast(msg); const old = document.querySelector(".toast"); if (old) old.remove(); document.getElementById("app").insertAdjacentHTML("beforeend", `<div class="toast" role="status">${esc(msg)}</div>`); }
 function showToast(msg){ toast = msg; clearTimeout(toastT); toastT = setTimeout(()=>{ toast = null; const el = document.querySelector(".toast"); if (el) el.remove(); }, 2600); }
 
 // ---------- history helpers ----------
@@ -1821,18 +1823,24 @@ document.addEventListener("focusout", () => { if (renderLater) setTimeout(() => 
 // ---------- views ----------
 // If the page can't be drawn (damaged data, a bug), saving stops and the rescue screen offers a way out
 // instead of a blank app.
-function render(){ try{ drawPage(); }catch(e){ rescue(e); } }
-function rescue(err){
-  saveBlocked = true; clearTimeout(saveT);
+function render(){ try{ drawPage(); }catch(e){ rescue(e, false); } }
+// atBoot: the saved data itself couldn't be opened, so saving pauses to protect it. A drawing error later on keeps
+// saving (your latest change is kept) and still offers the same ways out.
+function rescue(err, atBoot = true){
+  if (atBoot){ saveBlocked = true; clearTimeout(saveT); } else flushSave();
   const raw = (() => { try{ return localStorage.getItem(KEY) || localStorage.getItem(KEY + "-corrupt") || ""; }catch(e){ return ""; } })();
   document.getElementById("dock").hidden = true;
   document.getElementById("app").innerHTML = `<div class="panel" style="margin-top:24px"><h2>Something went wrong opening your data</h2>
-    <p class="hint">${esc(bootBad || "The app hit an error drawing this screen.")} Nothing has been changed or deleted, and saving is paused so nothing gets overwritten.</p>
+    <p class="hint">${esc(bootBad || (atBoot ? "The app couldn't open your saved data." : "The app hit an error drawing this screen."))} ${atBoot ? "Nothing has been changed or deleted, and saving is paused so nothing gets overwritten." : "Your data is saved as it was a moment ago."}</p>
     <button class="primary" id="rzSave">Save a copy of your data</button>
     <button id="rzSnaps">Go back to a safety snapshot</button><div id="rzList" class="hint"></div>
     <button id="rzReload">Try again</button>
+    <button class="danger small" id="rzFresh">Start over with an empty app</button>
     <p class="hint" style="font-size:12px">Error: ${esc(String(err && err.message || err || bootBad || ""))}</p></div>`;
   document.getElementById("rzReload").onclick = () => location.reload();
+  document.getElementById("rzFresh").onclick = e => { const b = e.currentTarget;   // the damaged data stays kept aside under its own name
+    if (b.dataset.sure !== "1"){ b.dataset.sure = "1"; b.textContent = "Tap again: your current data is kept aside, not deleted"; return; }
+    try{ if (raw) localStorage.setItem(KEY + "-before-rescue", raw); localStorage.removeItem(KEY); }catch(_){} location.reload(); };
   document.getElementById("rzSave").onclick = () => { const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([raw], { type:"application/json" })); a.download = `iron-log-rescue-${dkey(Date.now())}.json`; document.body.appendChild(a); a.click(); a.remove(); };
   document.getElementById("rzSnaps").onclick = async () => { const box = document.getElementById("rzList");
     try{ const keys = await snapDo("readonly", st => st.getAllKeys()), vals = await snapDo("readonly", st => st.getAll());
@@ -3206,7 +3214,7 @@ function coachView(){
 // What the research says, as the app applies it. Claude plans from this and its own knowledge.
 const RESEARCH_BRIEF = `Research the plan should follow (use your own knowledge of the literature too, and go with the stronger evidence where it differs):
 - Volume: hard sets per muscle per week show a dose-response with diminishing returns; about 10–20 a week suits most trained lifters (Schoenfeld 2017; Pelland 2024). Priority muscles toward the top, maintenance muscles can sit lower. Count a set fully for the muscle it mainly trains and half for a big helper (rows → biceps, presses → triceps, squats and hinges → glutes), as the app does (Pelland 2024).
-- Frequency: once weekly volume is equal, how many days it's spread over makes little difference to growth (Pelland 2024), though it helps strength; spreading sets over 2+ days mainly keeps each set high quality. Returns from more sets for one muscle in one session shrink past about 10–11 hard sets (Remmert 2025, preprint).
+- Frequency: once weekly volume is equal, how many days it's spread over makes little difference to growth (Pelland 2024), though it helps strength; spreading sets over 2+ days mainly keeps each set high quality. More than about 6–8 hard sets for one muscle in one session adds little.
 - Effort: most growth comes from sets taken 0–3 reps short of failure; isolation work can go closer than big compounds (Refalo 2023; Robinson 2024).
 - Rest: more than 60 s between sets grows a little more than less; past about 90 s adds little for isolation; big compounds need 2–3 min to keep reps up (Singer 2024).
 - Exercise selection: train each muscle from its key angles and favor exercises that load it hard at long muscle lengths (overhead triceps extensions, seated leg curls, incline curls, deep stretch flys and presses) (Maeo 2021, 2023; Kassiano 2023). Stable machines and cables let you push close to failure safely.
@@ -3820,7 +3828,7 @@ document.addEventListener("pointerdown", unlockAudio, { passive:true });
 document.addEventListener("click", e => {
   const b = e.target.closest("[data-act]"); if (!b) return;
   // a tap on a button lets go of the set box you were typing in, so redrawing the page can't swap it under the keyboard
-  { const fe = document.activeElement; if (fe && fe !== b && fe.dataset && fe.dataset.f != null && !b.matches("input,textarea,select")) fe.blur(); }
+  { const fe = document.activeElement; if (fe && fe !== b && fe.matches && fe.matches("input,textarea") && !fe.closest(".modal") && !b.matches("input,textarea,select")) fe.blur(); }
   const act = b.dataset.act, d = b.dataset.d != null ? +b.dataset.d : null, x = b.dataset.x != null ? +b.dataset.x : null;
   switch(act){
     case "tab": state.tab = b.dataset.v; summary = null; save(); render(); window.scrollTo(0,0); break;
@@ -3844,10 +3852,10 @@ document.addEventListener("click", e => {
       if (v == null || v <= 0){ showToast(isW ? "Enter your weight first." : "Enter your waist first."); render(); break; }
       { // catch typos (1800 for 180, kg typed in lb) before they bend the trend and the advice
         const kgv = isW ? (U() === "kg" ? v : v / LB) : (lenUnit() === "cm" ? v : v * 2.54);
-        if (isW ? kgv < 30 || kgv > 300 : kgv < 45 || kgv > 200){ showToast(isW ? `${v} ${U()} doesn't look right. Check the number and the unit.` : `${v} ${lenUnit()} doesn't look right. Check the number and the unit.`); render(); break; }
+        if (isW ? kgv < 30 || kgv > 300 : kgv < 45 || kgv > 200){ noteToast(isW ? `${v} ${U()} doesn't look right. Check the number and the unit.` : `${v} ${lenUnit()} doesn't look right. Check the number and the unit.`); break; }
         const fld = isW ? "w" : "waist", near = Object.keys(blog()).filter(d => d !== k && blog()[d][fld] != null && Math.abs(dayOf(d) - dayOf(k)) <= (isW ? 10 : 45) * dayMs), ref = near.length ? avg(near.map(d => blog()[d][fld])) : null;
         if (ref && Math.abs(v - ref) / ref > (isW ? .07 : .1) && confirmKey !== act + ":" + v){ confirmKey = act + ":" + v; clearTimeout(confirmTimer); confirmTimer = setTimeout(() => { confirmKey = null; }, 8000);
-          showToast(`${v} is far from your recent ${Math.round(ref * 10) / 10}. Tap Save again if it's right.`); render(); break; }
+          noteToast(`${v} is far from your recent ${Math.round(ref * 10) / 10}. Tap Save again if it's right.`); break; }
         confirmKey = null; }
       entry(k)[isW ? "w" : "waist"] = Math.round(v * 10) / 10; save(); askPersist(); showToast(isW ? `Saved ${Math.round(v * 10) / 10} ${U()}${when}.` : `Saved waist ${Math.round(v * 10) / 10} ${lenUnit()}${when}.`); bwDay = null; render(); break; }
     case "bwDay": bwDay = b.dataset.v || null; render(); break;
@@ -4172,7 +4180,7 @@ document.addEventListener("keydown", e => {
 document.addEventListener("toggle", e => { const id = e.target.id; if (id === "goalsPanel") goalsOpen = e.target.open; if (id === "pastBlocks") pastOpen = e.target.open; if (id === "restorePanel") restoreOpen = e.target.open; if (id === "calPanel") calOpen = e.target.open; if (id === "cdEdit") cdEditOpen = e.target.open; }, true);
 
 if (state.timer && Date.now() - state.timer.end > 60000) state.timer = null;
-try{ if (bootBad) throw new Error(bootBad); migrate(); save(); readCalOffer(); dailySnap(); render(); }catch(e){ rescue(e); }
+try{ if (bootBad) throw new Error(bootBad); migrate(); drawPage(); save(); readCalOffer(); dailySnap(); }catch(e){ rescue(e); }
 if ("serviceWorker" in navigator && window.isSecureContext && location.protocol.startsWith("http"))
   navigator.serviceWorker.register("sw.js").then(() => navigator.serviceWorker.ready).then(() => { offlineReady = true; if (state.tab === "program") render(); }).catch(() => {});
 setTimeout(() => analyzeWaiting(true), 1500);

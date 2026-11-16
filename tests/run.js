@@ -110,8 +110,11 @@ const ok = (cond, name, detail) => { if (cond){ passes++; } else { fails++; cons
   // typos in a weigh-in are caught
   const typo = await p.evaluate(() => { state.units = 'lb'; const k = dkey(Date.now()); state.body.log = {}; for (let i = 1; i < 7; i++) state.body.log[dkey(addDays(Date.now(), -i))] = { w:180 };
     state.tab = 'body'; render(); const save = v => { document.getElementById('bwIn').value = v; document.getElementById('bwSave').click(); return (state.body.log[k] || {}).w; };
-    return [save('1800'), save('81.6'), save('81.6'), save('181')]; });
-  ok(typo[0] == null && typo[1] == null && typo[2] === 81.6 && typo[3] === 181, 'weigh-in typos need a second tap or are refused', JSON.stringify(typo));
+    const r = [save('1800'), save('81.6'), save('81.6'), save('181')];
+    // typed once, Save tapped twice: the box keeps the number and the second tap stores it
+    delete state.body.log[k]; render(); document.getElementById('bwIn').value = '195'; document.getElementById('bwSave').click(); const kept = document.getElementById('bwIn').value; document.getElementById('bwSave').click();
+    return [...r, kept, (state.body.log[k] || {}).w]; });
+  ok(typo[0] == null && typo[1] == null && typo[2] === 81.6 && typo[3] === 181 && typo[4] === '195' && typo[5] === 195, 'weigh-in typos need a second tap or are refused', JSON.stringify(typo));
   // build week: no 4th set on the day the weight goes up; a 4th set on a same-weight day matches its note
   const bw = await p.evaluate(() => { const F = n => lib().find(e => e.n === n).id, W = 7*864e5, S = (w, r) => ({ w:String(w), r:String(r), done:true, rir:2 }); expoCache.key = 'x'; state.phase = 'maintain'; state.light = null; state.buildOn = true; state.goals.priority = [];
     state.days = [{ id:'d1', name:'U', items:[{ ex:F('Wide-Grip Lat Pulldown'), sets:3, lo:8, hi:12, rest:120 }, { ex:F('Incline Dumbbell Press'), sets:3, lo:8, hi:12, rest:120 }] }];
@@ -147,7 +150,10 @@ const ok = (cond, name, detail) => { if (cond){ passes++; } else { fails++; cons
     await q.addInitScript(r => { if (!sessionStorage.getItem('seeded')){ sessionStorage.setItem('seeded', '1'); localStorage.setItem('iron-log-v1', r); } }, raw);
     await q.goto('file://' + path.resolve(__dirname, '../index.html')); await q.waitForTimeout(800);
     const res = await q.evaluate(() => ({ rescue:!!document.getElementById('rzSave'), kept:localStorage.getItem('iron-log-v1'), n:typeof state !== 'undefined' ? state.sessions.length : -1, tabs:['train','body','program','history','progress'].every(t => { state.tab = t; render(); return !document.getElementById('rzSave'); }) }));
-    if (name === 'unreadable') ok(res.rescue && res.kept === raw, `${name} save opens rescue and is kept`, JSON.stringify({ rescue:res.rescue, same:res.kept === raw, qe }));
+    if (name === 'unreadable'){ ok(res.rescue && res.kept === raw, `${name} save opens rescue and is kept`, JSON.stringify({ rescue:res.rescue, same:res.kept === raw, qe }));
+      await q.click('#rzFresh'); await q.click('#rzFresh'); await q.waitForTimeout(800);
+      const fr = await q.evaluate(() => ({ app:!!document.getElementById('tab-train'), aside:localStorage.getItem('iron-log-v1-before-rescue') }));
+      ok(fr.app && fr.aside === raw, 'rescue can start over and keeps the damaged data aside', JSON.stringify({ app:fr.app, aside:fr.aside === raw })); }
     else ok(!res.rescue && res.n === 1 && res.tabs && !qe.length, `${name} save is repaired and every tab opens`, JSON.stringify({ res, qe }));
     await qc.close(); }
   console.log(`${passes} passed, ${fails} failed`); await b.close(); process.exit(fails ? 1 : 0);
