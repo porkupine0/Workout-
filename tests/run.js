@@ -145,6 +145,10 @@ const ok = (cond, name, detail) => { if (cond){ passes++; } else { fails++; cons
     a.items[0].sets.push({ w:'', r:'8', done:true }); const n0 = a.items[0].sets.length; const btn = () => document.querySelector('[data-act="rmSet"][data-x="0"]'); state.tab = 'train'; render(); btn().click(); const n1 = a.items[0].sets.length; btn().click(); const n2 = a.items[0].sets.length;
     state.active = null; return { order:order.join(' | '), n0, n1, n2 }; });
   ok(ssw.order === 'Rope Pushdown | Dumbbell Curl+ | Overhead Cable Extension' && ssw.n1 === ssw.n0 && ssw.n2 === ssw.n0 - 1, 'superset swap keeps the pair; removing a done set asks first', JSON.stringify(ssw));
+  // per-session volume counts helper sets as half, like the weekly targets
+  const cs = await p.evaluate(() => { const F = n => lib().find(e => e.n === n).id; const items = [{ ex:F('Dumbbell Curl'), sets:3 }, { ex:F('Barbell Row'), sets:4 }, { ex:F('Wide-Grip Lat Pulldown'), sets:4 }];
+    state.phase = 'maintain'; const r = { biceps:creditSets(items, 'Biceps', x => x.sets), back:creditSets(items, 'Back', x => x.sets), cap:volCaps().day }; state.phase = undefined; return r; });
+  ok(cs.biceps === 7 && cs.back === 8 && cs.cap === 11, 'session volume: helper sets count half; cap 11', JSON.stringify(cs));
   ok(errs.length === 0, 'no page errors', errs.join('\n'));
   // damaged saved data: rescue screen, and the stored data is not overwritten
   for (const [name, raw] of [['unreadable', '{"v":1,"units":"lb","days":[],"sessions":[{"id":"a"'], ['wrong-typed', JSON.stringify({ v:1, units:'lb', days:[], sessions:[{ id:'s', dayId:'d', start:1, end:2, items:[] }], body:'oops', goals:5 })]]){
