@@ -36,113 +36,117 @@
   --slab:#2a3038; --slab-done:#1f7a4d; --on-good:#111316; --tagW:#7aa7ff; --tagD:#f0a050;
 }
 *{box-sizing:border-box}
-body{background:var(--bg);color:var(--ink);font:16px/1.45 "Figtree",system-ui,sans-serif;padding-inline:max(16px, env(safe-area-inset-left,0px)) max(16px, env(safe-area-inset-right,0px));padding-block:0 calc(var(--dockH, 0px) + 40px)}
+/* text follows the iPhone's text-size setting (iOS body text is 17px by default, so sizes are in 17ths of a rem);
+   elsewhere the root stays at 17px. The biggest numbers are capped so they can't push the layout sideways. */
+html{font-size:17px;-webkit-text-size-adjust:100%}
+@supports (font:-apple-system-body){html{font:-apple-system-body}}
+body{background:var(--bg);color:var(--ink);font:0.941rem/1.45 "Figtree",system-ui,sans-serif;padding-inline:max(16px, env(safe-area-inset-left,0px)) max(16px, env(safe-area-inset-right,0px));padding-block:0 calc(var(--dockH, 0px) + 40px)}
 .wrap{max-width:620px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
 h1,h2,h3,.cond{font-family:"Barlow Condensed","Figtree",system-ui,sans-serif;letter-spacing:.01em}
 h1,h2,h3{margin:0;text-wrap:balance}
-h1{font-size:30px;font-weight:800;text-transform:uppercase}
-h2{font-size:24px;font-weight:700}
-h3{font-size:19px;font-weight:700}
+h1{font-size:min(1.765rem, 39px);font-weight:800;text-transform:uppercase}
+h2{font-size:1.412rem;font-weight:700}
+h3{font-size:1.118rem;font-weight:700}
 .num{font-variant-numeric:tabular-nums}
 .top{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);padding-block:12px 10px;display:flex;flex-direction:column;gap:10px;border-bottom:1px solid var(--line)}
 .brand{display:flex;align-items:center;gap:10px}
 .brand svg{width:34px;height:34px;flex:none}
-.tabs{display:grid;grid-template-columns:repeat(5,1fr);gap:5px}
-.tab{padding:9px 2px;border-radius:10px;font-size:14px;min-height:44px}
+.tabs{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:5px}
+.tab{padding:9px 2px;border-radius:10px;font-size:min(0.824rem, 14.5px);min-height:44px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tab[aria-selected="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
-@media (max-width:359px){.tabs{gap:3px}.tab{font-size:12.5px;padding:9px 0}}
-.eyebrow{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:700}
+@media (max-width:359px){.tabs{gap:3px}.tab{font-size:0.735rem;padding:9px 0}}
+.eyebrow{font-size:0.706rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:700}
 .panel{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:12px;box-shadow:var(--shadow)}
 button,select{font:inherit;cursor:pointer;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--ink);padding:10px 14px;font-weight:600}
 button:disabled{opacity:.35;cursor:default}
 button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
-.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-size:17px;padding:14px;font-weight:800}
+.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-size:1rem;padding:14px;font-weight:800}
 .ghost{background:transparent}
-.small{padding:6px 10px;font-size:14px}
+.small{padding:6px 10px;font-size:0.824rem}
 .danger{color:var(--bad);border-color:var(--bad)}
 .row{display:flex;align-items:center;gap:10px}
 .grow{flex:1;min-width:0}
 input[type=text],input[type=search],input[type=time],select,textarea{font:inherit;width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
-textarea{min-height:90px;resize:vertical;font-size:13px}
-.hint{font-size:14px;color:var(--muted);margin:0}
+textarea{min-height:90px;resize:vertical;font-size:0.765rem}
+.hint{font-size:0.824rem;color:var(--muted);margin:0}
 .btnrow{display:flex;gap:8px;flex-wrap:wrap}
 .btnrow>*{flex:1}
 .chips{display:flex;flex-wrap:wrap;gap:6px}
-.chip{padding:7px 12px;border-radius:999px;font-size:14px}
+.chip{padding:7px 12px;border-radius:999px;font-size:0.824rem}
 .chip[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
-.err{background:var(--bad-bg);color:var(--bad);padding:10px 12px;border-radius:10px;font-weight:600;font-size:14px}
-.ok{background:var(--good-bg);color:var(--good);padding:10px 12px;border-radius:10px;font-weight:700;font-size:14px}
+.err{background:var(--bad-bg);color:var(--bad);padding:10px 12px;border-radius:10px;font-weight:600;font-size:0.824rem}
+.ok{background:var(--good-bg);color:var(--good);padding:10px 12px;border-radius:10px;font-weight:700;font-size:0.824rem}
 
 /* day picker */
 .days{display:flex;flex-direction:column;gap:10px}
 .daycard{display:grid;grid-template-columns:1fr auto;gap:4px 12px;align-items:center;padding:14px;border-radius:14px;border:1px solid var(--line);background:var(--surface);text-align:left}
 .daycard.next{border:2px solid var(--accent)}
-.daycard .dn{font-family:"Barlow Condensed",sans-serif;font-size:24px;font-weight:700}
-.daycard .dm{font-size:13px;color:var(--muted);grid-column:1}
+.daycard .dn{font-family:"Barlow Condensed",sans-serif;font-size:1.412rem;font-weight:700}
+.daycard .dm{font-size:0.765rem;color:var(--muted);grid-column:1}
 .daycard .go{grid-row:1 / 3;grid-column:2;background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:800}
-.nextTag{display:inline-block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;padding:2px 8px;border-radius:999px;background:var(--accent);color:var(--accent-ink);margin-left:8px;vertical-align:4px;font-family:"Figtree",sans-serif}
+.nextTag{display:inline-block;font-size:0.647rem;font-weight:800;text-transform:uppercase;letter-spacing:.06em;padding:2px 8px;border-radius:999px;background:var(--accent);color:var(--accent-ink);margin-left:8px;vertical-align:4px;font-family:"Figtree",sans-serif}
 
 /* session */
 .sesshead{display:flex;align-items:center;gap:10px;padding:14px 16px;border-radius:14px;background:var(--slab);color:var(--slab-ink)}
-.sesshead .clock{font-family:"Barlow Condensed",sans-serif;font-size:30px;font-weight:700;line-height:1}
-.sesshead small{display:block;font-size:12px;opacity:.7;text-transform:uppercase;letter-spacing:.08em}
+.sesshead .clock{font-family:"Barlow Condensed",sans-serif;font-size:min(1.765rem, 39px);font-weight:700;line-height:1}
+.sesshead small{display:block;font-size:0.706rem;opacity:.7;text-transform:uppercase;letter-spacing:.08em}
 .exc{display:flex;flex-direction:column;gap:10px}
 .exc.shut{padding:10px 14px;gap:0}
 .shutbtn{display:flex;align-items:center;gap:10px;width:100%;background:transparent;border:0;padding:4px 0;text-align:left;min-height:44px}
-.shutbtn .en{font-family:"Barlow Condensed",sans-serif;font-size:19px;font-weight:700}
-.shutbtn .sm{color:var(--muted);font-size:13px;font-weight:600}
-.why summary{cursor:pointer;font-size:13px;font-weight:700;color:var(--muted);padding:6px 0}
+.shutbtn .en{font-family:"Barlow Condensed",sans-serif;font-size:1.118rem;font-weight:700}
+.shutbtn .sm{color:var(--muted);font-size:0.765rem;font-weight:600}
+.why summary{cursor:pointer;font-size:0.765rem;font-weight:700;color:var(--muted);padding:6px 0}
 .why[open]{display:flex;flex-direction:column;gap:6px}
 .exhead{display:flex;align-items:flex-start;gap:10px}
-.exhead .en{font-family:"Barlow Condensed",sans-serif;font-size:22px;font-weight:700;line-height:1.1}
-.exhead .em{font-size:13px;color:var(--muted)}
-.prev{font-size:13px;color:var(--muted)}
-.hintup{display:inline-block;font-size:12px;font-weight:800;padding:3px 8px;border-radius:999px;background:var(--good-bg);color:var(--good)}
+.exhead .en{font-family:"Barlow Condensed",sans-serif;font-size:1.294rem;font-weight:700;line-height:1.1}
+.exhead .em{font-size:0.765rem;color:var(--muted)}
+.prev{font-size:0.765rem;color:var(--muted)}
+.hintup{display:inline-block;font-size:0.706rem;font-weight:800;padding:3px 8px;border-radius:999px;background:var(--good-bg);color:var(--good)}
 .sets{display:flex;flex-direction:column;gap:6px}
 .setrow{display:grid;grid-template-columns:28px 1fr 1fr 52px;gap:8px;align-items:center;padding:4px;border-radius:10px;scroll-margin-top:96px;scroll-margin-bottom:calc(var(--dockH, 0px) + 16px)}
 .setrow.done{background:var(--done)}
 .setrow .sn{font-weight:800;text-align:center;color:var(--muted)}
-.setrow input{text-align:center;font-size:19px;font-weight:700;padding:9px 4px}
+.setrow input{text-align:center;font-size:1.118rem;font-weight:700;padding:9px 4px}
 .fbpanel{background:rgba(255,255,255,.12);border-radius:12px;padding:10px 12px;text-align:left}
-.fbrow{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;margin-top:6px;font-size:14px;font-weight:600}
+.fbrow{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;margin-top:6px;font-size:0.824rem;font-weight:600}
 .fbrow>span:first-child{min-width:84px}.fbx>span:first-child{flex-basis:100%}
-.fbpanel .chip{font-size:13px;padding:6px 10px}
+.fbpanel .chip{font-size:0.765rem;padding:6px 10px}
 .fbpanel .chip[aria-pressed="true"]{background:#fff;color:#111;border-color:#fff;box-shadow:0 0 0 2px #111 inset}
 .svlist{display:flex;flex-direction:column;gap:8px;margin:8px 0}
 .svrow{display:grid;grid-template-columns:1fr auto;gap:6px 8px;align-items:center}
-.svn{grid-column:1/-1;font-weight:600;font-size:14px}
+.svn{grid-column:1/-1;font-weight:600;font-size:0.824rem}
 .svf{display:flex;align-items:center;gap:4px}.svf input{width:44px;text-align:center;padding:7px 2px;font-weight:700}
 .svb{display:flex;gap:4px}.svb [aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}.svb .small{padding:6px 10px;min-width:36px}
 .fold{margin:0}.fold>.foldsum{cursor:pointer;font-weight:800;padding:12px 4px;list-style-position:inside}.fold[open]>.foldsum{padding-bottom:6px}
 .setrow .lr{display:grid;grid-template-columns:1fr 1fr;gap:4px;min-width:0}
-.setrow .lr input{font-size:17px;padding:9px 2px;min-width:0}
-.setrow .ck{height:46px;padding:0;font-size:22px;font-weight:800}
+.setrow .lr input{font-size:1rem;padding:9px 2px;min-width:0}
+.setrow .ck{height:46px;padding:0;font-size:1.294rem;font-weight:800}
 .setrow.done .ck{background:var(--good);border-color:var(--good);color:var(--on-good)}
-.setlbl{display:grid;grid-template-columns:28px 1fr 1fr 52px;gap:8px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700;text-align:center;padding:0 4px}
-.setmeta{grid-column:2 / 5;font-size:12px;color:var(--muted);margin-top:-4px;padding-left:2px}
+.setlbl{display:grid;grid-template-columns:28px 1fr 1fr 52px;gap:8px;font-size:0.647rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700;text-align:center;padding:0 4px}
+.setmeta{grid-column:2 / 5;font-size:0.706rem;color:var(--muted);margin-top:-4px;padding-left:2px}
 .setmeta b{color:var(--good)}
 
-.tagbtn{background:transparent;border:0;padding:0;height:44px;min-width:36px;font-weight:800;color:var(--muted);font-size:15px}
+.tagbtn{background:transparent;border:0;padding:0;height:44px;min-width:36px;font-weight:800;color:var(--muted);font-size:0.882rem}
 .tagbtn.tg-W{color:var(--tagW)} .tagbtn.tg-D{color:var(--tagD)} .tagbtn.tg-F{color:var(--bad)}
 .rir{display:inline-flex;align-items:center;gap:3px;margin-left:8px;flex-wrap:wrap}
-.rir .rl{font-weight:800;font-size:11px;letter-spacing:.05em;margin-right:2px}
-.rir button{padding:2px 8px;font-size:13px;border-radius:999px;font-weight:700;min-width:40px;min-height:36px}
+.rir .rl{font-weight:800;font-size:0.647rem;letter-spacing:.05em;margin-right:2px}
+.rir button{padding:2px 8px;font-size:0.765rem;border-radius:999px;font-weight:700;min-width:40px;min-height:36px}
 .rir button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
 .setmeta{display:flex;flex-wrap:wrap;align-items:center;gap:4px}
-.more summary{cursor:pointer;padding:10px 0;font-size:14px;font-weight:700;color:var(--accent-text)}
-.more .tip{font-size:14px;margin:8px 0 0;max-width:62ch}
-.more textarea{min-height:56px;font-size:14px;margin-top:4px}
-.lbl2{display:block;font-size:12px;font-weight:700;color:var(--muted);margin-top:10px}
-.notepre{font-size:13.5px;font-style:italic;color:var(--muted)}
+.more summary{cursor:pointer;padding:10px 0;font-size:0.824rem;font-weight:700;color:var(--accent-text)}
+.more .tip{font-size:0.824rem;margin:8px 0 0;max-width:62ch}
+.more textarea{min-height:56px;font-size:0.824rem;margin-top:4px}
+.lbl2{display:block;font-size:0.706rem;font-weight:700;color:var(--muted);margin-top:10px}
+.notepre{font-size:0.794rem;font-style:italic;color:var(--muted)}
 .exc.ss{border-left:5px solid var(--accent)}
 .exc.ss-a{border-bottom-left-radius:4px;border-bottom-right-radius:4px;margin-bottom:-10px}
 .exc.ss-b{border-top-left-radius:4px;border-top-right-radius:4px}
-.sslabel{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--accent-text)}
+.sslabel{font-size:0.647rem;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--accent-text)}
 .swapopt{display:grid;grid-template-columns:1fr auto;gap:2px 10px;text-align:left;padding:12px 14px}
 .swapopt .n{font-weight:800}
-.swapopt .m{font-size:13px;color:var(--muted);grid-column:1}
-.swapopt .why{grid-row:1 / 3;grid-column:2;font-size:12px;font-weight:700;color:var(--good);align-self:center;text-align:right}
-.playbook li{font-size:14.5px;line-height:1.55;margin-bottom:6px}
+.swapopt .m{font-size:0.765rem;color:var(--muted);grid-column:1}
+.swapopt .why{grid-row:1 / 3;grid-column:2;font-size:0.706rem;font-weight:700;color:var(--good);align-self:center;text-align:right}
+.playbook li{font-size:0.853rem;line-height:1.55;margin-bottom:6px}
 .target{position:relative}
 .hbar .t{position:relative}
 .hbar .t span.band{position:absolute;top:0;bottom:0;height:auto;background:var(--good-bg);border-radius:0;outline:1px dashed var(--good);outline-offset:-1px}
@@ -152,16 +156,16 @@ textarea{min-height:90px;resize:vertical;font-size:13px}
 .timer .in{max-width:620px;margin:0 auto;display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px 12px;align-items:center}
 .timer .in > span:nth-child(2){min-width:0}
 .timer .in b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.timer .big{font-family:"Barlow Condensed",sans-serif;font-size:44px;font-weight:800;line-height:1;min-width:92px}
-.timer .lbl{font-size:13px;opacity:.8}
+.timer .big{font-family:"Barlow Condensed",sans-serif;font-size:min(2.588rem, 57px);font-weight:800;line-height:1;min-width:92px}
+.timer .lbl{font-size:0.765rem;opacity:.8}
 .timer .bar{grid-column:1 / -1;height:6px;border-radius:3px;background:rgba(255,255,255,.25);overflow:hidden}
 .timer .bar span{display:block;height:100%;background:var(--accent)}
 .timer .tb{display:flex;gap:8px;grid-column:1 / -1}
-.timer .tb button{flex:1;min-height:44px;background:transparent;color:var(--slab-ink);border-color:rgba(255,255,255,.5);padding:8px 10px;font-size:15px}
+.timer .tb button{flex:1;min-height:44px;background:transparent;color:var(--slab-ink);border-color:rgba(255,255,255,.5);padding:8px 10px;font-size:0.882rem}
 .timer.over{background:var(--slab-done)}
 .timer.over .bar span{background:#fff}
 .timer.slim{padding-top:8px;padding-bottom:calc(8px + env(safe-area-inset-bottom,0px))}
-.timer.slim .big{font-size:28px;min-width:72px}
+.timer.slim .big{font-size:min(1.647rem, 36px);min-width:72px}
 .timer.slim .in{grid-template-columns:auto minmax(0,1fr) auto}
 .timer.slim .tb{grid-column:auto}
 .timer.slim .tb button{flex:none}
@@ -175,15 +179,15 @@ body:has(#app input:focus) .timer .tb, body:has(#app input:focus) .timer .lbl{di
 .pitem:last-child{border-bottom:0}
 .pitem .pn{font-weight:800}
 .pgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
-.pgrid label{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700;display:flex;flex-direction:column;gap:4px}
+.pgrid label{font-size:0.647rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700;display:flex;flex-direction:column;gap:4px}
 .mini{display:flex;align-items:center;gap:2px}
-.mini button{width:34px;height:36px;padding:0;font-size:18px}
-.mini span{min-width:36px;text-align:center;font-weight:800;font-size:16px}
+.mini button{width:34px;height:36px;padding:0;font-size:1.059rem}
+.mini span{min-width:36px;text-align:center;font-weight:800;font-size:0.941rem}
 .reps{display:flex;align-items:center;gap:4px}
-.reps input{text-align:center;padding:8px 2px;font-weight:700;font-size:16px;width:100%;min-width:0}
+.reps input{text-align:center;padding:8px 2px;font-weight:700;font-size:0.941rem;width:100%;min-width:0}
 .iconbtns{display:flex;gap:4px;margin-left:auto}
 .iconbtns{gap:8px}
-.iconbtns button{padding:4px 9px;font-size:14px;min-width:44px;min-height:44px}
+.iconbtns button{padding:4px 9px;font-size:0.824rem;min-width:44px;min-height:44px}
 
 /* picker */
 .modal{position:fixed;inset:0 0 var(--dockH, 0px) 0;z-index:30;background:var(--bg);display:flex;flex-direction:column}
@@ -195,7 +199,7 @@ body:has(#app input:focus) .timer .tb, body:has(#app input:focus) .timer .lbl{di
 .scrollchips .chip{white-space:nowrap;flex:none}
 .exrow{display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:center;padding:11px 4px;border-bottom:1px solid var(--line);width:100%;text-align:left;background:transparent;border-radius:0;border-left:0;border-right:0;border-top:0}
 .exrow .n{font-weight:700}
-.exrow .m{font-size:13px;color:var(--muted)}
+.exrow .m{font-size:0.765rem;color:var(--muted)}
 .exrow .box{grid-row:1 / 3;grid-column:2;width:30px;height:30px;border-radius:8px;border:2px solid var(--line);display:flex;align-items:center;justify-content:center;font-weight:800}
 .exrow[aria-pressed="true"] .box{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
 .exask{display:flex;flex-direction:column;gap:10px;padding:16px 0 6px}
@@ -203,26 +207,26 @@ body:has(#app input:focus) .timer .tb, body:has(#app input:focus) .timer .lbl{di
 .exareply{margin:0;font-weight:600}
 .exnew{display:flex;flex-direction:column;gap:6px;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
 .exnew .n{font-weight:800}
-.exnew .m{font-size:13px;color:var(--muted)}
+.exnew .m{font-size:0.765rem;color:var(--muted)}
 
 /* history & progress */
 .sess{display:flex;flex-direction:column;gap:4px;padding-block:12px;border-top:1px solid var(--line)}
 .sess:first-child{border-top:0;padding-top:0}
 .sess .sh{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
-.sess .sh b{font-family:"Barlow Condensed",sans-serif;font-size:20px}
-.sess .sm{font-size:13px;color:var(--muted)}
-.sess details summary{cursor:pointer;font-size:14px;font-weight:700;color:var(--accent-text)}
-.sess .ex{font-size:14px;padding:4px 0}
+.sess .sh b{font-family:"Barlow Condensed",sans-serif;font-size:1.176rem}
+.sess .sm{font-size:0.765rem;color:var(--muted)}
+.sess details summary{cursor:pointer;font-size:0.824rem;font-weight:700;color:var(--accent-text)}
+.sess .ex{font-size:0.824rem;padding:4px 0}
 .tiles{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
 .tile{padding:14px;border-radius:12px;background:var(--surface);border:1px solid var(--line)}
-.tile .v{font-family:"Barlow Condensed",sans-serif;font-size:34px;font-weight:800;line-height:1}
-.tile .l{font-size:13px;color:var(--muted)}
+.tile .v{font-family:"Barlow Condensed",sans-serif;font-size:min(2rem, 44px);font-weight:800;line-height:1}
+.tile .l{font-size:0.765rem;color:var(--muted)}
 .chart{width:100%;height:auto;display:block}
-.chart text{fill:var(--muted);font:12px "Figtree",sans-serif}
+.chart text{fill:var(--muted);font:0.706rem "Figtree",sans-serif}
 .chart .bar{fill:var(--accent)}
 .chart .bar:hover{opacity:.8}
 .chart .grid{stroke:var(--line);stroke-width:1}
-.hbar{display:grid;grid-template-columns:96px 1fr 36px;gap:8px;align-items:center;font-size:14px}
+.hbar{display:grid;grid-template-columns:96px 1fr 36px;gap:8px;align-items:center;font-size:0.824rem}
 .hbar .t{height:12px;border-radius:0 4px 4px 0;background:var(--surface-2);overflow:hidden}
 .hbar .t span{display:block;height:100%;background:var(--accent);border-radius:0 4px 4px 0}
 .cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
@@ -230,14 +234,14 @@ body:has(#app input:focus) .timer .tb, body:has(#app input:focus) .timer .lbl{di
 .cal span.on{background:var(--accent)}
 .cal span.today{outline:2px solid var(--ink);outline-offset:-2px}
 .tablewrap{overflow-x:auto}
-table.st{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums;font-size:14px}
+table.st{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums;font-size:0.824rem}
 table.st th,table.st td{padding:7px 6px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
-table.st th{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700}
+table.st th{font-size:0.647rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700}
 table.st th:first-child,table.st td:first-child{text-align:left;white-space:normal}
-.toast{position:fixed;left:50%;top:calc(8px + env(safe-area-inset-top,0px));transform:translateX(-50%);z-index:40;background:var(--good);color:var(--on-good);font-weight:700;font-size:14px;line-height:1.3;padding:8px 14px;border-radius:14px;box-shadow:0 6px 18px rgba(0,0,0,.3);max-width:min(440px,calc(100% - 24px));text-align:center;width:max-content;pointer-events:none}
+.toast{position:fixed;left:50%;top:calc(8px + env(safe-area-inset-top,0px));transform:translateX(-50%);z-index:40;background:var(--good);color:var(--on-good);font-weight:700;font-size:0.824rem;line-height:1.3;padding:8px 14px;border-radius:14px;box-shadow:0 6px 18px rgba(0,0,0,.3);max-width:min(440px,calc(100% - 24px));text-align:center;width:max-content;pointer-events:none}
 .summary{background:var(--accent);color:var(--accent-ink);border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:8px}
 .summary .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;text-align:center}
-.summary .stats b{display:block;font-family:"Barlow Condensed",sans-serif;font-size:30px;line-height:1}
+.summary .stats b{display:block;font-family:"Barlow Condensed",sans-serif;font-size:min(1.765rem, 39px);line-height:1}
 .summary button{background:var(--accent-ink);color:var(--accent);border-color:var(--accent-ink)}
 
 /* goals, blocks & targets */
@@ -245,16 +249,16 @@ table.st th:first-child,table.st td:first-child{text-align:left;white-space:norm
 .pbar span{display:block;height:100%;background:var(--accent)}
 .panel.due{border:2px solid var(--accent)}
 .gfield{display:flex;flex-direction:column;gap:8px}
-.gl{font-weight:700;font-size:15px}
-.tg{display:inline-block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;padding:2px 7px;border-radius:999px;background:var(--surface-2);color:var(--muted);white-space:nowrap}
+.gl{font-weight:700;font-size:0.882rem}
+.tg{display:inline-block;font-size:0.647rem;font-weight:800;text-transform:uppercase;letter-spacing:.05em;padding:2px 7px;border-radius:999px;background:var(--surface-2);color:var(--muted);white-space:nowrap}
 .tg.up{background:var(--good-bg);color:var(--good)}
 .tg.down{background:var(--bad-bg);color:var(--bad)}
 .rvx{display:flex;flex-direction:column;gap:6px;padding:10px 0;border-bottom:1px solid var(--line)}
 .rvx:last-child{border-bottom:0}
 .rvx .n{font-weight:800}
-.why{font-size:13px;color:var(--muted);margin:0;line-height:1.4}
-.tgt{display:flex;flex-direction:column;gap:2px;font-size:13px;padding:8px 10px;border-radius:10px;background:var(--surface-2);color:var(--muted)}
-.tgt b{font-size:15px;color:var(--ink)}
+.why{font-size:0.765rem;color:var(--muted);margin:0;line-height:1.4}
+.tgt{display:flex;flex-direction:column;gap:2px;font-size:0.765rem;padding:8px 10px;border-radius:10px;background:var(--surface-2);color:var(--muted)}
+.tgt b{font-size:0.882rem;color:var(--ink)}
 .tgt.up{background:var(--good-bg);color:var(--good)}
 .tgt.up b{color:var(--good)}
 .tgt.down{background:var(--bad-bg);color:var(--bad)}
@@ -262,11 +266,11 @@ table.st th:first-child,table.st td:first-child{text-align:left;white-space:norm
 .summary .sumbtns{display:flex;flex-direction:column;gap:8px}
 
 /* body: weight, protein, photos */
-.bnum{font-family:"Barlow Condensed",sans-serif;font-size:34px;font-weight:800;line-height:1}
+.bnum{font-family:"Barlow Condensed",sans-serif;font-size:min(2rem, 44px);font-weight:800;line-height:1}
 .bin{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center}
-.bin input{font-size:18px;font-weight:700;text-align:center}
+.bin input{font-size:1.059rem;font-weight:700;text-align:center}
 .bdate{display:flex;gap:6px;align-items:center}
-.bdate input{flex:1;min-width:0;font-size:16px}
+.bdate input{flex:1;min-width:0;font-size:0.941rem}
 .bdate .chip{flex:none;padding:7px 10px}
 .bdate .chip[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
 .wlist{display:flex;flex-direction:column}
@@ -274,30 +278,30 @@ table.st th:first-child,table.st td:first-child{text-align:left;white-space:norm
 .wrow:last-child{border-bottom:0}
 .pgal{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 .pth{width:100%;aspect-ratio:3/4;object-fit:cover;border-radius:10px;background:var(--surface-2);display:block}
-.pslot{display:flex;flex-direction:column;gap:6px;align-items:stretch;text-align:center;font-size:13px;font-weight:700}
+.pslot{display:flex;flex-direction:column;gap:6px;align-items:stretch;text-align:center;font-size:0.765rem;font-weight:700}
 .pslot label{display:flex;align-items:center;justify-content:center;aspect-ratio:3/4;border:2px dashed var(--line);border-radius:10px;cursor:pointer;color:var(--muted);padding:8px}
 .pslot input{display:none}
 .cmpw{position:relative;border-radius:12px;overflow:hidden;background:#000}
 .cmpw canvas{display:block;width:100%;height:auto}
 .cmpw canvas+canvas{position:absolute;inset:0}
-.cmpw .lab{position:absolute;top:8px;font-size:12px;font-weight:800;color:#fff;background:rgba(0,0,0,.55);padding:3px 8px;border-radius:999px}
+.cmpw .lab{position:absolute;top:8px;font-size:0.706rem;font-weight:800;color:#fff;background:rgba(0,0,0,.55);padding:3px 8px;border-radius:999px}
 input[type=range]{width:100%;accent-color:var(--accent)}
 .lines{width:100%;display:block;border-radius:12px;background:var(--surface-2)}
-.metric{display:grid;grid-template-columns:1fr auto auto;gap:4px 10px;align-items:baseline;font-size:14px}
+.metric{display:grid;grid-template-columns:1fr auto auto;gap:4px 10px;align-items:baseline;font-size:0.824rem}
 .metric b{font-variant-numeric:tabular-nums}
-.wu{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:13px;color:var(--muted)}
-.wu .tg{font-size:12px;text-transform:none;letter-spacing:0}
+.wu{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:0.765rem;color:var(--muted)}
+.wu .tg{font-size:0.706rem;text-transform:none;letter-spacing:0}
 .rdrow{display:flex;flex-direction:column;gap:8px}
 /* Claude coach, block planning and photo logging */
-.aikey{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:16px;line-height:1.4;word-break:break-all;resize:none;min-height:0}
-.coachin{font-size:16px;min-height:0}
-.aichg{margin:0;padding-left:20px;font-size:14px;color:var(--muted)}
+.aikey{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:0.941rem;line-height:1.4;word-break:break-all;resize:none;min-height:0}
+.coachin{font-size:0.941rem;min-height:0}
+.aichg{margin:0;padding-left:20px;font-size:0.824rem;color:var(--muted)}
 .plimg{display:block;max-width:100%;max-height:220px;object-fit:contain;border-radius:10px;align-self:center;background:var(--surface-2)}
 input[type=date]{font:inherit;width:100%;max-width:220px;min-height:44px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
 .plsets{display:flex;flex-wrap:wrap;gap:6px}
-.plset{display:inline-flex;align-items:center;gap:4px;padding:4px 6px;border-radius:10px;background:var(--surface-2);font-size:13px;color:var(--muted)}
+.plset{display:inline-flex;align-items:center;gap:4px;padding:4px 6px;border-radius:10px;background:var(--surface-2);font-size:0.765rem;color:var(--muted)}
 .plset b{min-width:14px;text-align:center}
-.plset input[type=text]{width:62px;padding:6px 4px;text-align:center;font-size:16px;font-weight:700}
+.plset input[type=text]{width:62px;padding:6px 4px;text-align:center;font-size:0.941rem;font-weight:700}
 .pulse{animation:pulse 1.2s ease-in-out infinite}
 @keyframes pulse{50%{opacity:.25}}
 @media (prefers-reduced-motion:reduce){.pulse,.timer.pop .in{animation:none}}
@@ -580,10 +584,10 @@ function sideRow(it, ex, xi){
   if (!isUni(ex)) return "";
   const sg = sideGap(it.ex), uneven = sg && sg.gap >= .08;
   if (uneven) return `<div class="row" style="gap:8px;flex-wrap:wrap;align-items:center"><span class="hint" style="font-weight:700">Started with</span><span class="chips">${["L","R"].map(k => `<button class="chip" data-act="side" data-x="${xi}" data-v="${k}" id="side-${xi}-${k}" aria-pressed="${it.first === k}">${SIDE[k]}${!it.first && sg.weak === k ? " ★" : ""}</button>`).join("")}</span>
-    <span class="hint" style="font-size:12.5px;flex-basis:100%">Your ${SIDE[sg.weak].toLowerCase()} side has been about ${Math.round(sg.gap * 100)}% behind lately. Start with it every set, and stop the other side at the same reps so it can catch up.</span></div>`;
+    <span class="hint" style="font-size:0.735rem;flex-basis:100%">Your ${SIDE[sg.weak].toLowerCase()} side has been about ${Math.round(sg.gap * 100)}% behind lately. Start with it every set, and stop the other side at the same reps so it can catch up.</span></div>`;
   const lf = lastFirst(it.ex), sug = lf ? (lf.side === "L" ? "R" : "L") : null;
   return `<div class="row" style="gap:8px;flex-wrap:wrap;align-items:center"><span class="hint" style="font-weight:700">Started with</span><span class="chips">${["L","R"].map(k => `<button class="chip" data-act="side" data-x="${xi}" data-v="${k}" id="side-${xi}-${k}" aria-pressed="${it.first === k}">${SIDE[k]}${!it.first && sug === k ? " ★" : ""}</button>`).join("")}</span>
-    <span class="hint" style="font-size:12.5px;flex-basis:100%">${lf ? `Last time (${agoTxt(lf.at)}) you started with your ${SIDE[lf.side].toLowerCase()}, so lead with your ${SIDE[sug].toLowerCase()} today.${it.first ? "" : " It's logged when you finish your first set; tap to change."}` : "Tap the side you start with, and next time the app tells you to lead with the other one."}</span></div>`;
+    <span class="hint" style="font-size:0.735rem;flex-basis:100%">${lf ? `Last time (${agoTxt(lf.at)}) you started with your ${SIDE[lf.side].toLowerCase()}, so lead with your ${SIDE[sug].toLowerCase()} today.${it.first ? "" : " It's logged when you finish your first set; tap to change."}` : "Tap the side you start with, and next time the app tells you to lead with the other one."}</span></div>`;
 }
 const WK_DAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 const WEEK_KIND = { lift:"🏋️ Lift", sport:"🏓 Sport", cardio:"🚶 Cardio", rest:"Rest" };
@@ -1480,7 +1484,7 @@ function bodyView(){
     ${weightChart()}
     <p class="${adv.kind === "up" ? "ok" : adv.kind === "down" ? "err" : "hint"}" style="${adv.kind ? "" : ""}">${esc(adv.txt)}</p>
     ${wn ? `<p class="hint">📏 ${esc(wn)}</p>` : ""}
-    ${goal ? `<div class="row" style="gap:6px;align-items:flex-end">${last7.map(x => `<span style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px"><span style="width:100%;height:${8 + Math.min(1, x.p / goal) * 40}px;border-radius:4px;background:${x.p >= goal ? "var(--good)" : x.p ? "var(--accent)" : "var(--surface-2)"}" title="${fmtDate(x.d)}: ${x.p} g"></span><span class="hint" style="font-size:11px">${new Date(x.d).toLocaleDateString(undefined,{weekday:"narrow"})}</span></span>`).join("")}</div>
+    ${goal ? `<div class="row" style="gap:6px;align-items:flex-end">${last7.map(x => `<span style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px"><span style="width:100%;height:${8 + Math.min(1, x.p / goal) * 40}px;border-radius:4px;background:${x.p >= goal ? "var(--good)" : x.p ? "var(--accent)" : "var(--surface-2)"}" title="${fmtDate(x.d)}: ${x.p} g"></span><span class="hint" style="font-size:0.647rem">${new Date(x.d).toLocaleDateString(undefined,{weekday:"narrow"})}</span></span>`).join("")}</div>
       <p class="hint">Protein goal hit on ${hits} of the last 7 days.</p>` : ""}</div>`;
   const logged = Object.keys(blog()).filter(x => blog()[x].w != null || blog()[x].waist != null).sort().reverse().slice(0, 14);
   const history = logged.length ? `<div class="panel"><h3>Weigh-ins</h3>
@@ -1493,7 +1497,7 @@ function bodyView(){
 function calibBox(){
   const n = pnoise().front, c1 = photos().filter(q => q.cal === 1 && q.pose === "front").sort((a, b) => b.at - a.at)[0], waiting = c1 && !photos().some(q => q.cal === 2 && q.at > c1.at);
   return `<details class="why" id="calibPanel"><summary>📏 ${n ? `Photo noise: up to ${(Math.max(...Object.entries(n).filter(([k]) => k !== "at").map(([, v]) => v)) * 100).toFixed(1)}% (measured ${agoTxt(n.at)})` : "Calibrate: how much do your photos vary?"}</summary>
-    <p class="hint" style="font-size:12.5px;margin:0">Take two front photos back to back: take one, step out of frame, come back to your spot and take the second. Nothing changed between them, so the difference is your setup's noise. Changes smaller than that (never under 2%) won't be called progress.</p>
+    <p class="hint" style="font-size:0.735rem;margin:0">Take two front photos back to back: take one, step out of frame, come back to your spot and take the second. Nothing changed between them, so the difference is your setup's noise. Changes smaller than that (never under 2%) won't be called progress.</p>
     <div class="pslot" style="max-width:none"><label for="cal-${waiting ? 2 : 1}">＋ Calibration photo ${waiting ? "2 of 2" : "1 of 2"}</label><input type="file" accept="image/*" id="cal-${waiting ? 2 : 1}" data-photo="front" data-cal="${waiting ? 2 : 1}"></div></details>`;
 }
 function photosPanel(){
@@ -1595,9 +1599,9 @@ function readyView(){
   const a = ready.a, day = state.days[ready.i];
   return `<div class="modal" role="dialog" aria-modal="true" aria-label="How are you feeling?"><div class="mb" style="padding-top:calc(16px + env(safe-area-inset-top,0px))"><div class="inner" style="display:flex;flex-direction:column;gap:16px;padding-bottom:24px">
     <div class="row"><h2 class="grow">How are you feeling?</h2><button class="small ghost" data-act="rdClose" id="rdClose">Cancel</button></div>
-    ${READY_Q.map(([k, l, opts]) => `<div class="rdrow"><span class="gl">${l}${k === "sore" ? " <span class=\"hint\" style=\"font-weight:400\">(1 none · 5 painful)</span>" : k === "energy" ? " <span class=\"hint\" style=\"font-weight:400\">(1 empty · 5 great)</span>" : ""}</span><div class="chips">${opts.map(([v, txt]) => `<button class="chip" data-act="rdPick" data-k="${k}" data-v="${v}" id="rd-${k}-${v}" aria-pressed="${a[k]===v}">${txt}</button>`).join("")}</div><span class="hint" style="font-size:13px">${READY_MEAN[k][a[k]] || ""}</span></div>`).join("")}
+    ${READY_Q.map(([k, l, opts]) => `<div class="rdrow"><span class="gl">${l}${k === "sore" ? " <span class=\"hint\" style=\"font-weight:400\">(1 none · 5 painful)</span>" : k === "energy" ? " <span class=\"hint\" style=\"font-weight:400\">(1 empty · 5 great)</span>" : ""}</span><div class="chips">${opts.map(([v, txt]) => `<button class="chip" data-act="rdPick" data-k="${k}" data-v="${v}" id="rd-${k}-${v}" aria-pressed="${a[k]===v}">${txt}</button>`).join("")}</div><span class="hint" style="font-size:0.765rem">${READY_MEAN[k][a[k]] || ""}</span></div>`).join("")}
     ${(lv => `<p class="${lv === "rough" || lv === "recovery" ? "err" : lv === "great" ? "ok" : "hint"}"><b>Score ${(t => t > 0 ? "+" + t : t < 0 ? "−" + -t : t)(readyScore(a))}.</b> ${READY_MSG[lv]}</p>`)(readyLevel(a))}
-    <details><summary class="hint" style="cursor:pointer">How the score works</summary><p class="hint" style="font-size:13px;margin-top:6px">Sleep: under 6 h −2, 6–6:45 −1, 6:45–7:30 0, 7:30–8:15 +1, 8:15+ +1. Soreness: 1–2 → 0, 3 → −1, 4 → −2, 5 → −3. Energy: 1 → −2, 2 → −1, 3 → 0, 4 → +1, 5 → +2.<br>Total +2 or more: great · −1 to +1: normal · −2 to −3: off · −4 to −5: rough · −6 or less: recovery. Soreness 5 is always at least a rough day, and soreness 4 or 5 can't be a great one.<br>Rough, off and recovery days don't count toward a stall unless you make progress anyway.</p></details>
+    <details><summary class="hint" style="cursor:pointer">How the score works</summary><p class="hint" style="font-size:0.765rem;margin-top:6px">Sleep: under 6 h −2, 6–6:45 −1, 6:45–7:30 0, 7:30–8:15 +1, 8:15+ +1. Soreness: 1–2 → 0, 3 → −1, 4 → −2, 5 → −3. Energy: 1 → −2, 2 → −1, 3 → 0, 4 → +1, 5 → +2.<br>Total +2 or more: great · −1 to +1: normal · −2 to −3: off · −4 to −5: rough · −6 or less: recovery. Soreness 5 is always at least a rough day, and soreness 4 or 5 can't be a great one.<br>Rough, off and recovery days don't count toward a stall unless you make progress anyway.</p></details>
     <button class="primary" data-act="rdStart" id="rdStart">Start ${esc(day ? day.name : "workout")}</button>
     <button class="ghost small" data-act="rdNever" id="rdNever">Start, and stop asking before workouts</button></div></div></div>`;
 }
@@ -1662,7 +1666,7 @@ function cardioCard(){
     <span class="hint">${cardioTip(goal - m, daysLeft)}</span>
     ${list.length ? `<span class="hint num">${list.map(x => `${new Date(x.at).toLocaleDateString(undefined,{weekday:"short"})}: ${esc(x.label)} ${x.min} min${x.hard ? " (hard, counts double)" : ""}`).join(" · ")}</span>` : ""}
     <div class="btnrow"><button class="small" data-act="cdOpen" id="cdOpen">+ Log cardio</button></div>
-    ${mine.length ? `<details id="cdEdit" ${cdEditOpen ? "open" : ""}><summary style="cursor:pointer;font-size:14px;font-weight:700">Edit this week's cardio</summary>${mine.map(x => `<div class="row" style="margin-top:6px"><span class="grow num" style="font-size:14px">${fmtDate(x.at)}: ${esc(x.label)} ${x.min} min${x.hard ? " (hard)" : ""}</span><button class="small danger" data-act="cdDel" data-id="${x.id}" id="cdDel-${x.id}">${confirmKey === "cddel" + x.id ? "Delete?" : "✕"}</button></div>`).join("")}</details>` : ""}</div>`;
+    ${mine.length ? `<details id="cdEdit" ${cdEditOpen ? "open" : ""}><summary style="cursor:pointer;font-size:0.824rem;font-weight:700">Edit this week's cardio</summary>${mine.map(x => `<div class="row" style="margin-top:6px"><span class="grow num" style="font-size:0.824rem">${fmtDate(x.at)}: ${esc(x.label)} ${x.min} min${x.hard ? " (hard)" : ""}</span><button class="small danger" data-act="cdDel" data-id="${x.id}" id="cdDel-${x.id}">${confirmKey === "cddel" + x.id ? "Delete?" : "✕"}</button></div>`).join("")}</details>` : ""}</div>`;
 }
 function cardioView(){
   const c = cardioUI, ch = (act, v, l, on) => `<button class="chip" data-act="${act}" data-v="${v}" id="${act}-${v}" aria-pressed="${on}">${l}</button>`;
@@ -1895,7 +1899,7 @@ function rescue(err, atBoot = true){
     <button id="rzSnaps">Go back to a safety snapshot</button><div id="rzList" class="hint"></div>
     <button id="rzReload">Try again</button>
     <button class="danger small" id="rzFresh">Start over with an empty app</button>
-    <p class="hint" style="font-size:12px">Error: ${esc(String(err && err.message || err || bootBad || ""))}</p></div>`;
+    <p class="hint" style="font-size:0.706rem">Error: ${esc(String(err && err.message || err || bootBad || ""))}</p></div>`;
   document.getElementById("rzReload").onclick = () => location.reload();
   document.getElementById("rzFresh").onclick = e => { const b = e.currentTarget;   // the damaged data stays kept aside under its own name
     if (b.dataset.sure !== "1"){ b.dataset.sure = "1"; b.textContent = "Tap again: your current data is kept aside, not deleted"; return; }
@@ -1966,7 +1970,7 @@ function trainView(){
   if (review) return reviewView();
   if (!state.days.length){
     return (calOffer ? calOfferView() : "") + moveInCard() + `<div class="panel"><h2>Let's build your program</h2><p class="hint">Set up 3 to 5 workout days. Start from a template, or build your own from about 290 exercises.</p>
-      <p class="hint" style="font-size:12.5px">Iron Log gives general training and nutrition guidance, not medical advice. Check with a doctor before starting if you have a health condition or injury, and stop any exercise that causes sharp pain.</p>
+      <p class="hint" style="font-size:0.735rem">Iron Log gives general training and nutrition guidance, not medical advice. Check with a doctor before starting if you have a health condition or injury, and stop any exercise that causes sharp pain.</p>
       <button class="primary" data-act="tab" data-v="program" id="goProgram">Set up my workout days</button></div>` + quickStart();
   }
   const nx = upNextIdx();
@@ -2008,7 +2012,7 @@ function savedPanel(){
             <span class="svf"><input type="text" inputmode="numeric" id="svs-${i}-${j}" data-svf="sets" data-i="${i}" data-j="${j}" value="${it.sets}" aria-label="Sets" autocomplete="off"><span>×</span><input type="text" inputmode="numeric" id="svl-${i}-${j}" data-svf="lo" data-i="${i}" data-j="${j}" value="${it.lo}" aria-label="Reps low" autocomplete="off"><span>–</span><input type="text" inputmode="numeric" id="svh-${i}-${j}" data-svf="hi" data-i="${i}" data-j="${j}" value="${it.hi}" aria-label="Reps high" autocomplete="off"></span>
             <span class="svb"><button class="small ghost" data-act="svUp" data-i="${i}" data-j="${j}" id="svup-${i}-${j}" aria-label="Move up" ${j ? "" : "disabled"}>↑</button><button class="small ghost" data-act="svSS" data-i="${i}" data-j="${j}" id="svss-${i}-${j}" aria-label="Superset with next" aria-pressed="${!!it.ss}" ${t.items[j+1] ? "" : "disabled"}>🔗</button><button class="small ghost" data-act="svRm" data-i="${i}" data-j="${j}" id="svrm-${i}-${j}" aria-label="Remove">✕</button></span></div>`).join("")}</div>
           <div class="btnrow"><button class="small" data-act="svAdd" data-i="${i}" id="sv-add-${i}">+ Add exercises</button><button class="small" data-act="svRename" data-i="${i}" id="sv-ren-${i}">Rename</button><button class="small danger" data-act="svDel" data-i="${i}" id="sv-del-${i}">${confirmKey === "sv" + i ? "Tap again to delete" : "Delete"}</button></div>
-          <p class="hint" style="font-size:12.5px">Sets × rep range for each. Weights come from each exercise's history when you start it.</p></details></div>`; }).join("")}</div>`;
+          <p class="hint" style="font-size:0.735rem">Sets × rep range for each. Weights come from each exercise's history when you start it.</p></details></div>`; }).join("")}</div>`;
 }
 function quickStart(){ return savedPanel() + `<button class="ghost" data-act="startEmpty" id="startEmpty">Start an empty workout</button>`; }
 
@@ -2068,7 +2072,7 @@ function sessionView(){
     // Focus: a finished exercise shrinks to one line once you've logged a set elsewhere (so its RIR can still be set)
     const allDone = it.sets.length && it.sets.every(q => q.done), lastTs = Math.max(0, ...it.sets.map(q => q.ts || 0));
     if (allDone && !it.open && !it.cal && a.lastDone > lastTs) return `<div class="panel exc shut ${inSS?"ss":""} ${it.ss?"ss-a":""} ${ssPrev?"ss-b":""}">
-      <button class="shutbtn" data-act="exOpen" data-x="${xi}" id="open-${xi}" aria-expanded="false"><span class="ck" aria-hidden="true" style="background:var(--good);border-color:var(--good);color:var(--on-good);width:28px;height:28px;display:grid;place-items:center;border-radius:8px;font-size:14px">✓</span>
+      <button class="shutbtn" data-act="exOpen" data-x="${xi}" id="open-${xi}" aria-expanded="false"><span class="ck" aria-hidden="true" style="background:var(--good);border-color:var(--good);color:var(--on-good);width:28px;height:28px;display:grid;place-items:center;border-radius:8px;font-size:0.824rem">✓</span>
         <span class="grow"><span class="en">${esc(ex.n)}</span><br><span class="sm num">${it.sets.map(q => fmtSet(q, ex.t)).join(", ")}${it.sets.some(q => q.pr) ? " · 🏆" : ""}</span></span><span class="sm" aria-hidden="true">▾</span></button></div>`;
     // the reasons behind today's plan sit behind one toggle, so the card shows what to lift
     const whys = [
@@ -2084,7 +2088,7 @@ function sessionView(){
       ${it.coachNote ? `<div class="notepre">🤖 ${esc(it.coachNote)}</div>` : ""}
       ${last ? `<div class="prev num">Last time (${agoTxt(last.at)}): ${last.sets.map(s=>fmtSet(s, ex.t)).join(", ")}${last.first ? ` · started ${SIDE[last.first].toLowerCase()}` : ""}</div>` : `<div class="prev">First time logging this one.</div>`}
       ${it.target ? targetLine(it, ex) : hint ? `<span class="hintup">${hint}</span>` : ""}
-      ${whys.length ? `<details class="why" id="why-${esc(it.ex)}-${xi}"><summary>ⓘ Why today${it.fbAdj > 0 || it.extra ? ": one extra set" : it.fbAdj < 0 ? ": one set fewer" : ""}</summary>${whys.map(w => `<p class="hint" style="font-size:12.5px;margin:0">${w}</p>`).join("")}</details>` : ""}
+      ${whys.length ? `<details class="why" id="why-${esc(it.ex)}-${xi}"><summary>ⓘ Why today${it.fbAdj > 0 || it.extra ? ": one extra set" : it.fbAdj < 0 ? ": one set fewer" : ""}</summary>${whys.map(w => `<p class="hint" style="font-size:0.735rem;margin:0">${w}</p>`).join("")}</details>` : ""}
       ${sideRow(it, ex, xi)}
       ${warmupHelp(it, ex, xi)}
       <div class="setlbl"><span>Set</span><span>${isT?"+Weight":"Weight"}</span><span>${isT?"Time":isUni(ex)?"Reps L · R":"Reps"}</span><span></span></div>
@@ -2099,15 +2103,15 @@ function sessionView(){
         <textarea id="note-${xi}" data-note="${esc(it.ex)}" placeholder="Seat height, grip, cues…" maxlength="300">${esc(note)}</textarea>
         ${loaded(ex) && ex.t !== "time" && !isAssisted(ex) ? `<label class="hint" for="base-${xi}" style="font-weight:700">Starting resistance (${U()})</label>
         <input type="text" inputmode="decimal" id="base-${xi}" data-base="${esc(it.ex)}" value="${baseOf(ex) || ""}" placeholder="${baseLikely(ex) ? "Check the machine's sticker, e.g. 75" : "0 for most exercises"}" autocomplete="off" style="max-width:220px">
-        <span class="hint" style="font-size:12.5px">What the machine adds before any plates. Keep logging plates only; the app adds this for jumps, back-offs and estimated 1RM.</span>` : ""}
+        <span class="hint" style="font-size:0.735rem">What the machine adds before any plates. Keep logging plates only; the app adds this for jumps, back-offs and estimated 1RM.</span>` : ""}
         ${loaded(ex) && ex.t !== "time" ? `<label class="hint" for="step-${xi}" style="font-weight:700">Smallest jump here (${U()})</label>
         <input type="text" inputmode="decimal" id="step-${xi}" data-stepx="${esc(it.ex)}" value="${ownStep(ex) || ""}" placeholder="Default ${stepFor({ ...ex, id:"" }, 100)}" autocomplete="off" style="max-width:220px">
-        <span class="hint" style="font-size:12.5px">Have microplates, half-pins or add-on weights? Set the smallest step and jumps use it.</span>` : ""}
+        <span class="hint" style="font-size:0.735rem">Have microplates, half-pins or add-on weights? Set the smallest step and jumps use it.</span>` : ""}
         <button class="small" data-act="painToggle" data-x="${xi}" id="pain-${xi}">${it.pain ? "😣 Marked: this hurt today (tap to undo)" : "😣 This hurt today"}</button>
-        ${it.pain ? `<p class="hint" style="font-size:12.5px;margin:0">Next time this goes lighter. Sharp pain, or pain that lasts, is worth seeing a doctor or physio about.</p>` : ""}
+        ${it.pain ? `<p class="hint" style="font-size:0.735rem;margin:0">Next time this goes lighter. Sharp pain, or pain that lasts, is worth seeing a doctor or physio about.</p>` : ""}
         <button class="small" data-act="uniToggle" data-x="${xi}" id="uni-${xi}">${isUni(ex) ? "↔ One side at a time: on" : "↔ Doing it one side at a time?"}</button>
         ${xi < a.items.length-1 ? `<button class="small" data-act="sxSS" data-x="${xi}" id="ss-${xi}">${it.ss?"🔗 Unlink superset":`🔗 Superset with ${esc(exById(a.items[xi+1].ex).n)}`}</button>` : ""}
-        <p class="hint" style="font-size:12.5px">Tap a set number to tag it: W warm-up (not counted), D drop set, F to failure.</p>
+        <p class="hint" style="font-size:0.735rem">Tap a set number to tag it: W warm-up (not counted), D drop set, F to failure.</p>
       </details>
     </div>`;
   }).join("");
@@ -2130,10 +2134,10 @@ function sessionView(){
 
 function calBox(it, ex, xi){
   const s = it.sets[it.sets.length - 1], tr = calTarget(it);
-  if (s.done && s.calRes) return `<p class="hint" style="font-size:13px">🎯 Calibration: you guessed ${s.calRes.guess} left at ${tr}, and you actually had ${s.calRes.actual}. ${s.calRes.actual - s.calRes.guess >= 2 ? "You're stopping earlier than you think: the app adds the difference when it sets targets." : s.calRes.actual - s.calRes.guess <= -1 ? "You had less in the tank than you thought." : "Good read."}</p>`;
+  if (s.done && s.calRes) return `<p class="hint" style="font-size:0.765rem">🎯 Calibration: you guessed ${s.calRes.guess} left at ${tr}, and you actually had ${s.calRes.actual}. ${s.calRes.actual - s.calRes.guess >= 2 ? "You're stopping earlier than you think: the app adds the difference when it sets targets." : s.calRes.actual - s.calRes.guess <= -1 ? "You had less in the tank than you thought." : "Good read."}</p>`;
   if (s.done) return "";
-  return `<div class="panel" style="background:var(--surface-2);gap:6px;padding:10px"><b style="font-size:14px">🎯 Calibration set: your last set goes to failure</b>
-    <span class="hint" style="font-size:13px">Before you start it, guess: if you stopped at ${tr} reps, how many more could you do? Then keep going until you can't, and log every rep. It keeps your reps-in-reserve honest.</span>
+  return `<div class="panel" style="background:var(--surface-2);gap:6px;padding:10px"><b style="font-size:0.824rem">🎯 Calibration set: your last set goes to failure</b>
+    <span class="hint" style="font-size:0.765rem">Before you start it, guess: if you stopped at ${tr} reps, how many more could you do? Then keep going until you can't, and log every rep. It keeps your reps-in-reserve honest.</span>
     <div class="chips">${[0,1,2,3,4,5].map(v => `<button class="chip" data-act="calGuess" data-x="${xi}" data-v="${v}" id="cal-${xi}-${v}" aria-pressed="${s.guess === v}">${v === 5 ? "5+" : v}</button>`).join("")}</div></div>`;
 }
 const calTarget = it => { const r = it.target && it.target.reps ? num(it.target.reps[it.sets.length - 1]) : 0; return r || it.hi || 12; };
@@ -2155,7 +2159,7 @@ function fbPanel(s){
   if (!ms.length) return "";
   const ch = (act, key, i, v, l, on) => `<button class="chip" data-act="${act}" data-k="${esc(key)}" data-v="${v}" id="${act}-${i}-${v}" aria-pressed="${on}">${l}</button>`;
   return `<details class="fbpanel" id="fbPanel" ${s.fbOpen === false ? "" : "open"}><summary style="cursor:pointer;font-weight:800">Quick feedback <span style="font-weight:600;opacity:.75">(optional, ~10 seconds)</span></summary>
-    <p style="font-size:13px;opacity:.85;margin:6px 0">It tunes sets per muscle and picks better exercises over time.</p>
+    <p style="font-size:0.765rem;opacity:.85;margin:6px 0">It tunes sets per muscle and picks better exercises over time.</p>
     <div style="font-weight:700;margin-top:4px">Still sore from last time when you started?</div>
     ${ms.map((m, i) => `<div class="fbrow"><span>${m}</span><span class="chips">${FB_SORE.map((l, v) => ch("fbSore", m, i, v, l, (fb.m || {})[m] && fb.m[m].sore === v)).join("")}</span></div>`).join("")}
     <div style="font-weight:700;margin-top:8px">Each exercise: muscle worked · joints</div>
@@ -2206,7 +2210,7 @@ function applyFeedback(a, day, ctx){
 }
 function summaryView(){
   const s = summary, tg = s.items.filter(it => it.target && it.target.kind !== "new"), hit = tg.filter(hitTarget).length;
-  return `<div class="summary"><span class="eyebrow" style="color:inherit;opacity:.7">Workout saved</span><h2 style="font-size:30px">${esc(s.dayName)} done 💪</h2>
+  return `<div class="summary"><span class="eyebrow" style="color:inherit;opacity:.7">Workout saved</span><h2 style="font-size:min(1.765rem, 39px)">${esc(s.dayName)} done 💪</h2>
     <div class="stats num"><span><b>${fmtTime((s.end-s.start)/1000)}</b>time</span><span><b>${setsOf(s)}</b>sets</span><span><b>${volumeOf(s).toLocaleString()}</b>${U()} lifted</span></div>
     ${(()=>{ const r = s.items.flatMap(it=>it.sets).filter(q=>q.rir!=null); if (!r.length) return ""; const avg = r.reduce((a,q)=>a+q.rir,0)/r.length; return `<div style="font-weight:700">Average effort: ${avg.toFixed(1)} reps in reserve${avg>3?". Try pushing a little closer to failure next time.":avg<1?". That's a hard session. Recover well.":". Right in the sweet spot."}</div>`; })()}
     ${s.prs && s.prs.length ? (s.prk ? `<div style="font-weight:700">🏆 New PR${s.prs.length>1?"s":""}${s.prs.map(id=>`<div style="font-weight:600">${esc(exById(id).n)}: ${(s.prk[id]||[]).map(esc).join(" · ")}</div>`).join("")}</div>` : `<div style="font-weight:700">🏆 New PR${s.prs.length>1?"s":""}: ${s.prs.map(id=>esc(exById(id).n)).join(", ")}</div>`) : ""}
@@ -2226,7 +2230,7 @@ function ssFixPanel(d, di){
     const left = r.pairs.filter(([a, b]) => ssWarnText(exById(a), exById(b))).length;
     return `<div class="panel" style="background:var(--surface-2);gap:8px"><b>Suggested pairs</b>
       ${r.pairs.map(([a, b]) => { const w = ssWarnText(exById(a), exById(b)); return `<div class="hint">🔗 ${esc(exById(a).n)} + ${esc(exById(b).n)}${w ? " ⚠️ still overlaps" : " ✓"}</div>`; }).join("")}
-      <p class="hint" style="font-size:12.5px">Same exercises, sets and reps. Only the partners${r.items.some((it, i) => it.ex !== d.items[i].ex) ? " and order" : ""} change.${left ? " One still overlaps: no better partner in this day, so consider doing it as straight sets." : ""}</p>
+      <p class="hint" style="font-size:0.735rem">Same exercises, sets and reps. Only the partners${r.items.some((it, i) => it.ex !== d.items[i].ex) ? " and order" : ""} change.${left ? " One still overlaps: no better partner in this day, so consider doing it as straight sets." : ""}</p>
       <div class="btnrow"><button class="small primary" data-act="ssFixApply" id="ssfixok-${di}">Use these pairs</button><button class="small ghost" data-act="ssFixNo" id="ssfixno-${di}">Keep mine</button></div></div>`;
   }
   return `<div class="err" style="display:flex;flex-direction:column;gap:8px">${plural(bad, "superset")} here ${bad > 1 ? "pair" : "pairs"} muscles that overlap.<button class="small" data-act="ssFixGo" data-d="${di}" id="ssfix-${di}">Suggest better pairs</button></div>`;
@@ -2237,14 +2241,14 @@ function programView(){
     const items = d.items.map((it, xi) => { const ex = exById(it.ex), isT = ex.t === "time";
       return `<div class="pitem"><div class="row"><span class="pn grow">${esc(ex.n)} <span class="hint" style="font-weight:400">· ${esc(ex.m)}</span></span>
         <span class="iconbtns"><button id="pu-${di}-${xi}" data-act="piUp" data-d="${di}" data-x="${xi}" aria-label="Move up" ${xi===0?"disabled":""}>↑</button><button id="pd-${di}-${xi}" data-act="piDown" data-d="${di}" data-x="${xi}" aria-label="Move down" ${xi===d.items.length-1?"disabled":""}>↓</button><button id="pr-${di}-${xi}" data-act="piRm" data-d="${di}" data-x="${xi}" aria-label="Remove">✕</button></span></div>
-        ${it.ss && xi < d.items.length-1 ? `<span class="sslabel">🔗 Superset with ${esc(exById(d.items[xi+1].ex).n)}</span>${(w => w ? `<span class="hint" style="font-size:12.5px;color:var(--bad)">⚠️ ${esc(w)}</span>` : "")(ssWarnText(ex, exById(d.items[xi+1].ex)))}` : ""}
+        ${it.ss && xi < d.items.length-1 ? `<span class="sslabel">🔗 Superset with ${esc(exById(d.items[xi+1].ex).n)}</span>${(w => w ? `<span class="hint" style="font-size:0.735rem;color:var(--bad)">⚠️ ${esc(w)}</span>` : "")(ssWarnText(ex, exById(d.items[xi+1].ex)))}` : ""}
         <div class="pgrid">
           <label>Sets<span class="mini"><button data-act="piSets" data-d="${di}" data-x="${xi}" data-v="-1" id="ps-${di}-${xi}-m" aria-label="Fewer sets">−</button><span class="num">${it.sets}</span><button data-act="piSets" data-d="${di}" data-x="${xi}" data-v="1" id="ps-${di}-${xi}-p" aria-label="More sets">+</button></span></label>
           <label>${isT?"Seconds":"Reps"}<span class="reps"><input type="text" inputmode="numeric" id="lo-${di}-${xi}" data-pf="lo" data-d="${di}" data-x="${xi}" value="${it.lo}" aria-label="Low">–<input type="text" inputmode="numeric" id="hi-${di}-${xi}" data-pf="hi" data-d="${di}" data-x="${xi}" value="${it.hi}" aria-label="High"></span></label>
           <label>Rest<span class="mini"><button data-act="piRest" data-d="${di}" data-x="${xi}" data-v="-15" id="pt-${di}-${xi}-m" aria-label="Less rest">−</button><span class="num">${fmtTime(it.rest)}</span><button data-act="piRest" data-d="${di}" data-x="${xi}" data-v="15" id="pt-${di}-${xi}-p" aria-label="More rest">+</button></span></label>
         </div>
-        <div class="row" style="gap:6px;flex-wrap:wrap"><span class="hint grow" style="font-size:12.5px">${REST_TIP[klass(ex)]}</span>${xi < d.items.length-1 ? `<button class="small ghost" data-act="piSS" data-d="${di}" data-x="${xi}" id="pss-${di}-${xi}">${it.ss?"Unlink superset":"🔗 Superset with next"}</button>` : ""}</div></div>`; }).join("");
-    return `<div class="panel"><div class="row"><input type="text" id="dn-${di}" data-dname="${di}" value="${esc(d.name)}" maxlength="24" aria-label="Day name" style="font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:700">
+        <div class="row" style="gap:6px;flex-wrap:wrap"><span class="hint grow" style="font-size:0.735rem">${REST_TIP[klass(ex)]}</span>${xi < d.items.length-1 ? `<button class="small ghost" data-act="piSS" data-d="${di}" data-x="${xi}" id="pss-${di}-${xi}">${it.ss?"Unlink superset":"🔗 Superset with next"}</button>` : ""}</div></div>`; }).join("");
+    return `<div class="panel"><div class="row"><input type="text" id="dn-${di}" data-dname="${di}" value="${esc(d.name)}" maxlength="24" aria-label="Day name" style="font-family:'Barlow Condensed',sans-serif;font-size:1.294rem;font-weight:700">
       <span class="iconbtns"><button id="du-${di}" data-act="dayUp" data-d="${di}" aria-label="Move day up" ${di===0?"disabled":""}>↑</button><button id="dr-${di}" data-act="dayRm" data-d="${di}" aria-label="Delete day">${confirmKey==="dayrm"+di?"Delete?":"✕"}</button></span></div>${d.when ? `<p class="hint" style="margin-top:-6px">📅 ${esc(d.when)} · about ${estMins(d.items)} min</p>` : `<p class="hint" style="margin-top:-6px">About ${estMins(d.items)} min</p>`}
       ${items || `<p class="hint">No exercises yet.</p>`}
       ${ssFixPanel(d, di)}
@@ -2284,7 +2288,7 @@ function goalsBody(){
       <p class="hint">Bodyweight, waist and progress-photo measurements come from the Body tab.</p></div>
     <div class="gfield"><span class="gl">Main goal</span>${chips("goal", GOALS)}</div>
     <div class="gfield"><span class="gl">Eating right now</span><div class="chips">${Object.entries(PHASES).map(([v, l]) => `<button class="chip" data-act="phase" data-v="${v}" id="ph-${v}" aria-pressed="${phaseOf() === v}">${l}</button>`).join("")}</div>
-      <p class="hint" style="font-size:12.5px">${{ cut:"Cutting: volume holds steady (no more than 16 hard sets a muscle a week), protein goes up, and holding your strength counts as winning.", maintain:"Maintaining: the normal plan, up to 20 hard sets a muscle a week.", gain:"Gaining: more room to add sets (up to 22 a muscle a week) where your feedback says a muscle can take it." }[phaseOf()]}</p></div>
+      <p class="hint" style="font-size:0.735rem">${{ cut:"Cutting: volume holds steady (no more than 16 hard sets a muscle a week), protein goes up, and holding your strength counts as winning.", maintain:"Maintaining: the normal plan, up to 20 hard sets a muscle a week.", gain:"Gaining: more room to add sets (up to 22 a muscle a week) where your feedback says a muscle can take it." }[phaseOf()]}</p></div>
     <div class="gfield"><span class="gl">How long you've trained consistently</span>${chips("exp", EXPS)}</div>
     <div class="gfield"><span class="gl">Priority muscles</span><div class="chips">${LIFT_MUSCLES.map(m => `<button class="chip" data-act="prio" data-v="${m}" id="gp-${slug(m)}" aria-pressed="${g.priority.includes(m)}">${m}</button>`).join("")}</div>
       <p class="hint">Up to 3. They get a little more volume, a second day if needed, and go first in the workout, where that exercise gains the most strength (Nunes 2021; order made no clear difference to muscle growth).</p></div>
@@ -2386,7 +2390,7 @@ function historyView(){
   const shown = [...state.sessions].map((s,i)=>[s,i]).reverse().slice(0, histShow), more = state.sessions.length - shown.length;
   const list = shown.map(([s,i]) => `<div class="sess"><div class="sh"><b>${esc(s.dayName)}</b><span class="sm">${fmtDate(s.end)}</span></div>
     <span class="sm num">${fmtTime((s.end-s.start)/1000)} · ${plural(setsOf(s),"set")} · ${volumeOf(s).toLocaleString()} ${U()}${s.prs&&s.prs.length?` · 🏆 ${plural(s.prs.length,"PR")}`:""}${s.ready && s.ready.level !== "normal" ? ` · felt ${READY_WORD[s.ready.level] || s.ready.level}` : ""}${s.from === "photo" ? " · 📷 from a photo" : ""}</span>
-    <details id="hdet-${esc(s.id)}"><summary>Details</summary>${s.items.map((it, ii) => ({ it, ii })).filter(({ it }) => it.sets.some(x=>x.done)).map(({ it, ii })=>{ const ex = exById(it.ex); return `<div class="ex num"><b>${esc(ex.n)}:</b> ${it.sets.filter(x=>x.done).map(x=>fmtSet(x, ex.t)).join(", ")}${it.first ? ` · started ${SIDE[it.first].toLowerCase()}` : ""} <button class="chip" style="padding:2px 8px;font-size:12px" data-act="histPain" data-sid="${esc(s.id)}" data-i="${ii}" id="hp-${esc(s.id)}-${ii}" aria-pressed="${!!it.pain}">😣 ${it.pain ? "Hurt" : "Hurt?"}</button></div>`; }).join("") || `<div class="ex hint">No completed sets.</div>`}
+    <details id="hdet-${esc(s.id)}"><summary>Details</summary>${s.items.map((it, ii) => ({ it, ii })).filter(({ it }) => it.sets.some(x=>x.done)).map(({ it, ii })=>{ const ex = exById(it.ex); return `<div class="ex num"><b>${esc(ex.n)}:</b> ${it.sets.filter(x=>x.done).map(x=>fmtSet(x, ex.t)).join(", ")}${it.first ? ` · started ${SIDE[it.first].toLowerCase()}` : ""} <button class="chip" style="padding:2px 8px;font-size:0.706rem" data-act="histPain" data-sid="${esc(s.id)}" data-i="${ii}" id="hp-${esc(s.id)}-${ii}" aria-pressed="${!!it.pain}">😣 ${it.pain ? "Hurt" : "Hurt?"}</button></div>`; }).join("") || `<div class="ex hint">No completed sets.</div>`}
       <button class="small" style="margin-top:6px" data-act="saveHist" data-sid="${esc(s.id)}" id="svh-${i}">💾 Save as a workout</button>
       <button class="small danger" style="margin-top:6px" data-act="delSess" data-i="${i}" id="dels-${i}">${confirmKey==="dels"+i?"Tap again to delete":"Delete this workout"}</button></details></div>`).join("") +
     (more > 0 ? `<button data-act="histMore" id="histMore">Show ${Math.min(more, 25)} older (${more} more)</button>` : "");
@@ -2409,17 +2413,17 @@ function blockCompare(){
   const mus = LIFT_MUSCLES.filter(m => cols.some(c => (c.sets[m] || 0) / c.wks >= 1));
   const chg = (a, b, u) => a != null && b != null ? `${b - a >= 0 ? "+" : "−"}${Math.abs(b - a).toFixed(1)} ${u}` : "–";
   const row = (label, f) => `<tr><td style="text-align:left">${label}</td>${cols.map(f).join("")}</tr>`;
-  const cell = (v, prev) => `<td>${v == null ? "–" : Math.round(v)}${v != null && prev != null ? `<br><span class="hint" style="font-size:11px">${v >= prev ? "+" : "−"}${Math.abs(Math.round((v / prev - 1) * 100))}%</span>` : ""}</td>`;
+  const cell = (v, prev) => `<td>${v == null ? "–" : Math.round(v)}${v != null && prev != null ? `<br><span class="hint" style="font-size:0.647rem">${v >= prev ? "+" : "−"}${Math.abs(Math.round((v / prev - 1) * 100))}%</span>` : ""}</td>`;
   return `<div class="tablewrap"><table class="st"><thead><tr><th style="text-align:left"></th>${cols.map(c => `<th>Block ${c.b.n}${c.b.now ? " (now)" : ""}</th>`).join("")}</tr></thead><tbody>
-    ${row("Dates", c => `<td style="font-size:12px">${new Date(c.b.start).toLocaleDateString(undefined, { month:"short", day:"numeric" })}<br>${Math.round(c.wks)} wk</td>`)}
-    ${row("Workouts", c => `<td>${c.S.length}<br><span class="hint" style="font-size:11px">${(c.S.length / c.wks).toFixed(1)}/wk</span></td>`)}
+    ${row("Dates", c => `<td style="font-size:0.706rem">${new Date(c.b.start).toLocaleDateString(undefined, { month:"short", day:"numeric" })}<br>${Math.round(c.wks)} wk</td>`)}
+    ${row("Workouts", c => `<td>${c.S.length}<br><span class="hint" style="font-size:0.647rem">${(c.S.length / c.wks).toFixed(1)}/wk</span></td>`)}
     ${lifts.length ? `<tr><th colspan="${cols.length + 1}" style="text-align:left">Est. 1RM (${U()})</th></tr>` + lifts.map(id => row(esc(exById(id).n), (c, i) => { const prev = cols.slice(0, i).reverse().find(p => p.best[id]); return cell(c.best[id] || null, prev ? prev.best[id] : null); })).join("") : ""}
     ${mus.length ? `<tr><th colspan="${cols.length + 1}" style="text-align:left">Hard sets a week</th></tr>` + mus.map(m => row(esc(m), c => `<td>${fmtSets((c.sets[m] || 0) / c.wks)}</td>`)).join("") : ""}
     <tr><th colspan="${cols.length + 1}" style="text-align:left">Body, start → end</th></tr>
     ${row("Bodyweight", c => `<td>${chg(c.w0, c.w1, U())}</td>`)}
     ${row("Waist", c => `<td>${chg(c.wa0, c.wa1, lenUnit())}</td>`)}
   </tbody></table></div>
-  <p class="hint" style="font-size:12.5px">Estimated 1RM is your best set in each block (it drifts with effort, so look for the trend). Lighter weeks aren't counted. Bodyweight compares the first and last week's averages.</p>`;
+  <p class="hint" style="font-size:0.735rem">Estimated 1RM is your best set in each block (it drifts with effort, so look for the trend). Lighter weeks aren't counted. Bodyweight compares the first and last week's averages.</p>`;
 }
 function progressView(){
   const S = state.sessions;
@@ -2471,7 +2475,7 @@ function progressView(){
   const calCard = `<div class="panel" style="gap:8px"><div class="row"><h3 class="grow">🎯 Reps-in-reserve check</h3><button class="chip" data-act="calToggle" id="calToggle" aria-pressed="${state.calOn !== false}">${state.calOn !== false ? "On" : "Off"}</button></div>
     <span class="hint">About every 2 weeks, the last set of one machine or cable isolation exercise goes to failure after you guess how many reps you had left. Most people have more left than they think.</span>
     ${cl.length ? `<p class="hint">${cl.length >= 2 ? (cb >= 1 ? `On average you have about <b>${fmtSets(cb)} more reps</b> than you log. The app adds that when it sets weights.` : cb <= -1 ? `On average you have about ${fmtSets(-cb)} fewer reps than you log. The app takes that into account.` : "Your guesses are on the money.") : "One check so far. The app starts adjusting after two."}</p>
-      <p class="hint" style="font-size:12.5px">${cl.slice(-5).reverse().map(c => `${esc(exById(c.ex).n)}: guessed ${c.guess}, had ${c.actual}`).join(" · ")}</p>` : `<p class="hint">No checks yet. The first one comes up in a workout soon.</p>`}</div>`;
+      <p class="hint" style="font-size:0.735rem">${cl.slice(-5).reverse().map(c => `${esc(exById(c.ex).n)}: guessed ${c.guess}, had ${c.actual}`).join(" · ")}</p>` : `<p class="hint">No checks yet. The first one comes up in a workout soon.</p>`}</div>`;
   const prTable = calCard + `<div class="panel"><h3>Personal records</h3>${recs.length?`<div class="tablewrap"><table class="st"><thead><tr><th>Exercise</th><th>Heaviest</th><th>Est. 1RM</th><th>Best day</th></tr></thead><tbody>${recs.map(r=>`<tr><td>${esc(r.ex.n)}</td>${r.ex.t==="time"?`<td>${fmtTime(r.hold)} hold</td><td>–</td><td>–</td>`:`<td>${r.as?(r.top?`${+r.top.toFixed(1)} assist`:"no assist"):r.top?`${loaded(r.ex)?"":"+"}${+r.top.toFixed(1)}`:"BW"}×${r.topR}</td><td>${r.e1?Math.round(r.e1):"–"}</td><td>${r.day}</td>`}</tr>`).join("")}</tbody></table></div><p class="hint">Est. 1RM is your estimated one-rep max from the Epley formula, using sets of 15 reps or fewer. Best day is the most weight you've moved on that exercise in one workout (total reps for bodyweight and assisted moves). Warm-ups never count. Pick an exercise below to see its rep records.</p>`:`<p class="hint">Log some sets to start tracking records.</p>`}</div>`;
   // exercise detail
   const done = [...new Set(S.flatMap(s => s.items.filter(it=>it.sets.some(x=>x.done)).map(it=>it.ex)))].sort((a,b)=>exById(a).n.localeCompare(exById(b).n));
@@ -3594,7 +3598,7 @@ function aiBlockPanel(){
     ${c.hard.length ? `<div class="err"><b>Still off after Claude's fixes:</b>${c.hard.map(t => `<div>• ${esc(t)}</div>`).join("")}</div>`
       : `<p class="ok" style="margin:0">✓ The app checked it: every day fits ${g.minutes} minutes, every muscle gets the right sets${g.split === "bro" ? "" : " on enough days"}, and no superset pairs muscles that overlap.</p>`}
     ${c.soft.length ? `<p class="hint">Worth a look: ${c.soft.map(esc).join(" ")} Claude's note on it says why.</p>` : ""}
-    ${ai.critic ? `<details><summary style="cursor:pointer;font-weight:700">🧐 Second coach's review${ai.critic.n > 1 ? ` (picked the ${esc(ai.critic.angle.toLowerCase())} plan of ${ai.critic.n})` : ""}</summary><p class="hint" style="margin-top:6px">${esc(ai.critic.verdict)}</p>${ai.critic.issues.length ? `<p class="hint" style="font-size:13px">It raised ${plural(ai.critic.issues.length, "point")}, and Claude revised the plan for them:</p>${ai.critic.issues.map(i => `<p class="why">${i.severity === "major" ? "❗" : "•"} ${esc(i.problem)} <i>${esc(i.fix)}</i></p>`).join("")}` : ""}</details>` : ai.criticErr ? `<p class="hint">The second coach couldn't review it this time (${esc(ai.criticErr)}). The app's checks still ran.</p>` : ""}
+    ${ai.critic ? `<details><summary style="cursor:pointer;font-weight:700">🧐 Second coach's review${ai.critic.n > 1 ? ` (picked the ${esc(ai.critic.angle.toLowerCase())} plan of ${ai.critic.n})` : ""}</summary><p class="hint" style="margin-top:6px">${esc(ai.critic.verdict)}</p>${ai.critic.issues.length ? `<p class="hint" style="font-size:0.765rem">It raised ${plural(ai.critic.issues.length, "point")}, and Claude revised the plan for them:</p>${ai.critic.issues.map(i => `<p class="why">${i.severity === "major" ? "❗" : "•"} ${esc(i.problem)} <i>${esc(i.fix)}</i></p>`).join("")}` : ""}</details>` : ai.criticErr ? `<p class="hint">The second coach couldn't review it this time (${esc(ai.criticErr)}). The app's checks still ran.</p>` : ""}
     ${ai.research ? `<details><summary style="cursor:pointer;font-weight:700">🔬 Research Claude found</summary><p class="hint" style="margin-top:6px;white-space:pre-wrap">${esc(ai.research)}</p></details>` : ai.researchErr ? `<p class="hint">Couldn't search for research (${esc(ai.researchErr)}), so Claude planned from what it knows.</p>` : ""}
     ${ai.plan.roadmap && ai.plan.roadmap.length ? `<div><b>🗺️ Roadmap</b>${ai.plan.roadmap.map(x => `<p class="why">Block ${x.block} · ${x.weeks} wk: ${esc(x.focus)}</p>`).join("")}</div>` : ""}
     <div class="gfield"><span class="gl">Which plan to start</span><div class="chips"><button class="chip" data-act="aiUse" data-v="1" id="aiUse-1" aria-pressed="${ai.use}">Claude's plan</button><button class="chip" data-act="aiUse" data-v="0" id="aiUse-0" aria-pressed="${!ai.use}">The app's plan</button></div></div>
@@ -3908,7 +3912,7 @@ function reachPanel(){
       <button class="chip" data-act="reachPain" data-i="${i}" id="rp-${i}" aria-pressed="${!!state.active.items[o.x].pain}">😣 It hurt</button></div>
       ${o.pick === "custom" ? `<div class="row" style="gap:8px;flex-wrap:wrap;align-items:center"><input type="text" inputmode="decimal" id="rcw-${i}" data-rcw="${i}" value="${esc(o.cw)}" placeholder="Weight" aria-label="Weight for next time" style="width:90px" autocomplete="off"><span>×</span>
         <input type="text" inputmode="numeric" id="rcr-${i}" data-rcr="${i}" value="${esc(o.cr)}" placeholder="Reps, e.g. 10, 9, 8" aria-label="Reps for next time" class="grow" style="min-width:150px" autocomplete="off"></div>` : ""}</div>`).join("")}
-    <span class="hint" style="font-size:12.5px">Stepping back keeps your reps in the range that builds muscle and lets you add weight again with good form. “It hurt” makes next time about 15% lighter.</span>
+    <span class="hint" style="font-size:0.735rem">Stepping back keeps your reps in the range that builds muscle and lets you add weight again with good form. “It hurt” makes next time about 15% lighter.</span>
     <button class="primary" data-act="reachFinish" id="reachFinish">Save and finish</button></div>`;
 }
 // finish: typo check first, then the too-heavy check, then save
