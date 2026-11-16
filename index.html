@@ -772,12 +772,14 @@ function cleanState(st){
   (st.days || []).forEach(d => (d.items || []).forEach(it => { if (/[<>&"'`\\]/.test(it.ex)) it.ex = cleanName(it.ex); }));
   return st;
 }
-function load(){ try{ const s = localStorage.getItem(KEY); return s ? JSON.parse(s) : null; }catch(e){ return null; } }
+// Saved data that won't read is kept aside, never overwritten: the app opens the rescue screen instead of starting empty.
+let saveBlocked = false, bootBad = null;
+function load(){ let s = null; try{ s = localStorage.getItem(KEY); return s ? JSON.parse(s) : null; }catch(e){ if (s){ bootBad = "Your saved data couldn't be read."; saveBlocked = true; try{ localStorage.setItem(KEY + "-corrupt", s); }catch(_){} } return null; } }
 // Saving: a burst of typing writes once, a third of a second after the last change, and anything pending is written
 // straight away when the app goes to the background or closes. Every day a snapshot of everything goes to the
 // phone's database (the last 10 are kept), and one more is taken before any restore.
 let saveOK = true, saveT = null;
-function saveNow(){ clearTimeout(saveT); saveT = null; try{ localStorage.setItem(KEY, JSON.stringify(state)); saveOK = true; }catch(e){ saveOK = false; } }
+function saveNow(){ clearTimeout(saveT); saveT = null; if (saveBlocked) return; try{ localStorage.setItem(KEY, JSON.stringify(state)); saveOK = true; }catch(e){ saveOK = false; } }
 function save(){ if (typeof expoCache !== "undefined") expoCache.key = ""; clearTimeout(saveT); saveT = setTimeout(saveNow, 300); }
 const flushSave = () => { if (saveT) saveNow(); };
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") flushSave(); });
@@ -1742,7 +1744,15 @@ async function restoreFrom(text, tab){
   if (data.active && !(Array.isArray(data.active.items) && data.active.items.every(okItem))) data.active = null;
   const dropped = before - data.sessions.length;
   await takeSnap("before-restore");   // what was here, kept so the restore can be undone
-  state = { ...fresh(), ...data, timer:null, tab:tab || "program" }; review = null; restoreText = ""; restoreOpen = false; migrate(); save();
+  // a field of the wrong kind (text where a list belongs, say) is dropped so the app's defaults fill in
+  const F0 = fresh(); for (const k of Object.keys(data)){ const want = k in F0 ? F0[k] : undefined, v = data[k];
+    if (want !== undefined && want !== null && v != null && (Array.isArray(want) !== Array.isArray(v) || typeof want !== typeof v)) delete data[k];
+    else if (["body","goals","cardio","block","notes","base","steps"].includes(k) && v != null && (typeof v !== "object" || Array.isArray(v))) delete data[k]; }
+  if (data.body){ if (!data.body.log || typeof data.body.log !== "object" || Array.isArray(data.body.log)) data.body.log = {}; if (!Array.isArray(data.body.photos)) data.body.photos = []; }
+  const old = state;
+  state = { ...fresh(), ...data, timer:null, tab:tab || "program" };
+  try{ migrate(); drawPage(); }catch(e){ state = old; showToast("That backup has data the app can't use, so nothing was changed."); render(); return false; }
+  review = null; restoreText = ""; restoreOpen = false; save();
   let n = 0;
   for (const [id, d] of Object.entries(obj.photos || {})){
     try{ const full = await (await fetch(d)).blob(), img = await blobImage(full), thumb = await jpeg(scaled(img, 360), .75); URL.revokeObjectURL(img.src); await idbPut(id, { full, thumb }); dropCache(id); n++; }catch(e){}
@@ -1800,11 +1810,33 @@ document.addEventListener("visibilitychange", () => { keepAwake(); if (document.
 // Redrawing the page swaps the box for a new one under the keyboard, and iOS then jumps to the bottom on every key.
 let renderLater = false;
 const typing = () => { const el = document.activeElement; return !!el && el.matches("input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]),textarea") && document.getElementById("app").contains(el); };
-function softRender(){ if (typing()){ renderLater = true; renderDock(); const t = document.querySelector(".toast"); if (!t && toast) document.getElementById("app").insertAdjacentHTML("beforeend", `<div class="toast" role="status">${toast}</div>`); } else render(); }
+function softRender(){ if (typing()){ renderLater = true; renderDock(); const t = document.querySelector(".toast"); if (!t && toast) document.getElementById("app").insertAdjacentHTML("beforeend", `<div class="toast" role="status">${esc(toast)}</div>`); } else render(); }
 document.addEventListener("focusout", () => { if (renderLater) setTimeout(() => { if (renderLater && !typing()) render(); }, 0); });
 
 // ---------- views ----------
-function render(){
+// If the page can't be drawn (damaged data, a bug), saving stops and the rescue screen offers a way out
+// instead of a blank app.
+function render(){ try{ drawPage(); }catch(e){ rescue(e); } }
+function rescue(err){
+  saveBlocked = true; clearTimeout(saveT);
+  const raw = (() => { try{ return localStorage.getItem(KEY) || localStorage.getItem(KEY + "-corrupt") || ""; }catch(e){ return ""; } })();
+  document.getElementById("dock").hidden = true;
+  document.getElementById("app").innerHTML = `<div class="panel" style="margin-top:24px"><h2>Something went wrong opening your data</h2>
+    <p class="hint">${esc(bootBad || "The app hit an error drawing this screen.")} Nothing has been changed or deleted, and saving is paused so nothing gets overwritten.</p>
+    <button class="primary" id="rzSave">Save a copy of your data</button>
+    <button id="rzSnaps">Go back to a safety snapshot</button><div id="rzList" class="hint"></div>
+    <button id="rzReload">Try again</button>
+    <p class="hint" style="font-size:12px">Error: ${esc(String(err && err.message || err || bootBad || ""))}</p></div>`;
+  document.getElementById("rzReload").onclick = () => location.reload();
+  document.getElementById("rzSave").onclick = () => { const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([raw], { type:"application/json" })); a.download = `iron-log-rescue-${dkey(Date.now())}.json`; document.body.appendChild(a); a.click(); a.remove(); };
+  document.getElementById("rzSnaps").onclick = async () => { const box = document.getElementById("rzList");
+    try{ const keys = await snapDo("readonly", st => st.getAllKeys()), vals = await snapDo("readonly", st => st.getAll());
+      const L = keys.map((k, i) => ({ k, v:vals[i] })).sort((a, b) => b.v.at - a.v.at);
+      box.innerHTML = L.length ? L.map((x, i) => `<div class="row" style="gap:8px;margin-top:6px"><span class="grow">${new Date(x.v.at).toLocaleString()} · ${plural(x.v.n || 0, "workout")}</span><button class="small" data-i="${i}">Use this</button></div>`).join("") : "No snapshots on this phone.";
+      box.querySelectorAll("button[data-i]").forEach(b => b.onclick = () => { if (raw) try{ localStorage.setItem(KEY + "-before-rescue", raw); }catch(e){} localStorage.setItem(KEY, L[+b.dataset.i].v.data); location.reload(); });
+    }catch(e){ box.textContent = "Couldn't open the snapshots."; } };
+}
+function drawPage(){
   renderLater = false;
   const app = document.getElementById("app");
   const ae = document.activeElement, focusId = ae && ae.id, sel = ae && ae.selectionStart;
@@ -4124,8 +4156,7 @@ document.addEventListener("keydown", e => {
 document.addEventListener("toggle", e => { const id = e.target.id; if (id === "goalsPanel") goalsOpen = e.target.open; if (id === "pastBlocks") pastOpen = e.target.open; if (id === "restorePanel") restoreOpen = e.target.open; if (id === "calPanel") calOpen = e.target.open; if (id === "cdEdit") cdEditOpen = e.target.open; }, true);
 
 if (state.timer && Date.now() - state.timer.end > 60000) state.timer = null;
-migrate(); save(); readCalOffer(); dailySnap();
-render();
+try{ if (bootBad) throw new Error(bootBad); migrate(); save(); readCalOffer(); dailySnap(); render(); }catch(e){ rescue(e); }
 if ("serviceWorker" in navigator && window.isSecureContext && location.protocol.startsWith("http"))
   navigator.serviceWorker.register("sw.js").then(() => navigator.serviceWorker.ready).then(() => { offlineReady = true; if (state.tab === "program") render(); }).catch(() => {});
 setTimeout(() => analyzeWaiting(true), 1500);

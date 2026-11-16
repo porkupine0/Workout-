@@ -128,6 +128,19 @@ const ok = (cond, name, detail) => { if (cond){ passes++; } else { fails++; cons
     set(d => 180 * (1 + .0075 * d / 7) + zig(d)); state.body.log[dkey(addDays(Date.now(), -1))].w = 1800; const typo = weightAdvice().txt;
     set(d => 180 * (1 + .02 * d / 7) + zig(d)); const fast = weightAdvice().txt; state.phase = undefined; state.body.log = {}; return { stale, typo, fast }; });
   ok(/days ago/.test(wa.stale) && /On target/.test(wa.typo) && /calories more/.test(wa.fast), 'weight advice: stale, outlier, fast cut', JSON.stringify(wa));
+  // a backup with wrong-typed fields can't break the app
+  const badRestore = await p.evaluate(async () => { const n0 = state.sessions.length;
+    const r = await restoreFrom(JSON.stringify({ days:[], sessions:[], body:'oops', goals:7, cardio:{ log:'x' } }), 'program');
+    let drew = true; try{ drawPage(); }catch(e){ drew = false; } return { r, drew, body:typeof state.body, rescue:!!document.getElementById('rzSave') }; });
+  ok(badRestore.drew && badRestore.body === 'object' && !badRestore.rescue, 'bad-typed backup is cleaned or refused', JSON.stringify(badRestore));
   ok(errs.length === 0, 'no page errors', errs.join('\n'));
+  // damaged saved data: rescue screen, and the stored data is not overwritten
+  for (const [name, raw] of [['unreadable', '{"v":1,"units":"lb","days":[],"sessions":[{"id":"a"'], ['wrong-typed', JSON.stringify({ v:1, units:'lb', days:[], sessions:[{ id:'s', dayId:'d', start:1, end:2, items:[] }], body:'oops', goals:5 })]]){
+    const qc = await b.newContext(), q = await qc.newPage(); const qe = []; q.on('pageerror', e => qe.push(e.message));
+    await q.goto('file://' + path.resolve(__dirname, '../index.html')); await q.evaluate(r => localStorage.setItem('iron-log-v1', r), raw);
+    await q.reload(); await q.waitForTimeout(800);
+    const res = await q.evaluate(() => ({ rescue:!!document.getElementById('rzSave'), kept:localStorage.getItem('iron-log-v1') }));
+    ok(res.rescue && res.kept === raw, `${name} save opens rescue and is kept`, JSON.stringify({ rescue:res.rescue, same:res.kept === raw, qe }));
+    await qc.close(); }
   console.log(`${passes} passed, ${fails} failed`); await b.close(); process.exit(fails ? 1 : 0);
 })();
