@@ -188,6 +188,12 @@ const ok = (cond, name, detail) => { if (cond){ passes++; } else { fails++; cons
     state.blocks = [{ id:'x1', n:1, start:t0 - 864e5, end:t0 + 3*W, weeks:3, days:[] }]; state.block = { id:'x2', n:2, start:t0 + 3*W, weeks:6, intro:false, scheme:0 };
     const h = blockCompare(), d = document.createElement('div'); d.innerHTML = h; const cells = [...d.querySelectorAll('tr')].find(r => /Bench/.test(r.textContent)); return { heads:d.querySelectorAll('thead th').length, bench:cells ? [...cells.querySelectorAll('td')].slice(1).map(td => td.textContent) : null }; });
   ok(bc.heads === 3 && bc.bench && /^\d+$/.test(bc.bench[0]) && /\+7%/.test(bc.bench[1]), 'blocks side by side', JSON.stringify(bc));
+  // exercise page: opens from the workout card, saves its fields through the normal handlers, closes back in place
+  const xpg = await p.evaluate(() => { const F = n => lib().find(e => e.n === n).id; state.days = [{ id:'dX', name:'X', items:[{ ex:F('Machine Chest Press'), sets:3, lo:8, hi:12, rest:90 }] }];
+    startSession(state.days[0], null); state.tab = 'train'; render(); document.getElementById('xpg-0').click(); const open = !!document.getElementById('exPageClose');
+    const el = document.getElementById('xp-base'); el.value = '30'; el.dispatchEvent(new Event('input', { bubbles:true })); document.getElementById('exPageClose').click();
+    const r = { open, base:state.base[F('Machine Chest Press')], closed:!document.getElementById('exPageClose'), cardHasBase:!!document.getElementById('base-0') }; state.active = null; delete state.base[F('Machine Chest Press')]; return r; });
+  ok(xpg.open && xpg.base === 30 && xpg.closed && !xpg.cardHasBase, 'exercise page opens, saves, closes', JSON.stringify(xpg));
   ok(errs.length === 0, 'no page errors', errs.join('\n'));
   // damaged saved data: rescue screen, and the stored data is not overwritten
   for (const [name, raw] of [['unreadable', '{"v":1,"units":"lb","days":[],"sessions":[{"id":"a"'], ['wrong-typed', JSON.stringify({ v:1, units:'lb', days:[], sessions:[{ id:'s', dayId:'d', start:1, end:2, items:[] }], body:'oops', goals:5 })]]){

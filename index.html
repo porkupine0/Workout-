@@ -93,6 +93,7 @@ textarea{min-height:90px;resize:vertical;font-size:max(16px, 0.765rem)}
 .sesshead small{display:block;font-size:0.706rem;opacity:.7;text-transform:uppercase;letter-spacing:.08em}
 .exc{display:flex;flex-direction:column;gap:10px}
 .exc.shut{padding:10px 14px;gap:0}
+.exlink{display:block;background:transparent;border:0;padding:0;text-align:left;color:var(--ink);min-height:0}
 .shutbtn{display:flex;align-items:center;gap:10px;width:100%;background:transparent;border:0;padding:4px 0;text-align:left;min-height:44px}
 .shutbtn .en{font-family:"Barlow Condensed",sans-serif;font-size:1.118rem;font-weight:700}
 .shutbtn .sm{color:var(--muted);font-size:0.765rem;font-weight:600}
@@ -710,7 +711,7 @@ let swap = null, review = null, goalsOpen = null, pastOpen = false, restoreOpen 
 let bwDay = null;   // the day a weigh-in is being logged for; null = today (so a missed morning can go on its own date)
 let ready = null, shoot = false, viewPhoto = null, cmp = { pose:"front", a:null, b:null, split:50 }, offlineReady = false;
 let cardioUI = null, cdEditOpen = false, calOpen = false, calOffer = null;
-let picker = null, toast = null, toastT = null, summary = null, confirmKey = null, confirmTimer = null, backupBox = null, progressEx = null;
+let picker = null, toast = null, toastT = null, summary = null, confirmKey = null, confirmTimer = null, backupBox = null, progressEx = null, exPage = null;
 // Fills in what older saves don't have. The current block starts at the first workout of today's program days.
 // lb ⇄ kg: every stored weight is converted and rounded to the nearest 0.5 (waist in ⇄ cm to 0.1)
 function convertUnits(to){
@@ -1927,7 +1928,7 @@ function drawPage(){
     <div class="tabs" role="tablist">${tabs.map(([k,l])=>`<button class="tab" role="tab" id="tab-${k}" data-act="tab" data-v="${k}" aria-selected="${state.tab===k}">${l}</button>`).join("")}</div></div>` +
     (!saveOK ? `<div class="err">${saveFull ? "The phone's storage for this app is full, so new changes aren't being saved. Save a backup now (Program → Settings), then delete old photos or history." : "This browser isn't letting the app save right now (private browsing?). Your workout will be lost if you close it."}</div>` : "") +
     (state.tab === "train" ? trainView() : state.tab === "body" ? bodyView() : state.tab === "program" ? programView() : state.tab === "history" ? historyView() : progressView()) +
-    (picker ? pickerView() : "") + (swap && !picker ? swapView() : "") + (ready && !picker ? readyView() : "") + (cardioUI && !picker ? cardioView() : "") + (viewPhoto ? photoView() : "") + (coach && !picker ? coachView() : "") + (plog && !picker ? plogView() : "") + (toast ? `<div class="toast" role="status">${esc(toast)}</div>` : "");
+    (picker ? pickerView() : "") + (exPage && !picker ? exPageView() : "") + (swap && !picker ? swapView() : "") + (ready && !picker ? readyView() : "") + (cardioUI && !picker ? cardioView() : "") + (viewPhoto ? photoView() : "") + (coach && !picker ? coachView() : "") + (plog && !picker ? plogView() : "") + (toast ? `<div class="toast" role="status">${esc(toast)}</div>` : "");
   if (keepLbl){ const k = document.querySelector(".modal.keep"); if (k && k.getAttribute("aria-label") === keepLbl) k.querySelector(".mb").scrollTop = keepTop; }
   if (focusId){ const el = document.getElementById(focusId); if (el && !picker || (el && picker && el.closest(".modal"))){ el.focus({preventScroll:true}); try{ if (sel != null) el.setSelectionRange(sel, sel); }catch(_){} } }
   if (!picker && !swap && !ready && !viewPhoto && !cardioUI && !coach && !plog) window.scrollTo(0, y);
@@ -2082,11 +2083,11 @@ function sessionView(){
     const whys = [
       ssPrev && ssWarnText(exById(a.items[xi-1].ex), ex) ? `⚠️ Starts tired from ${esc(exById(a.items[xi-1].ex).n)}. Compare its numbers to other superset days, not your fresh best.` : "",
       it.fbWhy ? `${it.fbAdj > 0 ? "📈" : "📉"} ${esc(it.fbWhy)}` : it.extra ? `📈 Build week: a 4th set, since this one's still progressing. If set 4 lands under ${it.lo || 8}, it goes back to 3 for the rest of the block.` : "",
-      baseLikely(ex) && loaded(ex) && !(ex.id in state.base) ? `⚙️ This machine may add starting resistance (look for a sticker). Enter it once under Form tip, notes &amp; options, or put 0 if there isn't one.` : ""
+      baseLikely(ex) && loaded(ex) && !(ex.id in state.base) ? `⚙️ This machine may add starting resistance (look for a sticker). Enter it once on the exercise page (tap the exercise name), or put 0 if there isn't one.` : ""
     ].filter(Boolean);
     return `<div class="panel exc ${inSS?"ss":""} ${it.ss?"ss-a":""} ${ssPrev?"ss-b":""}">
       ${inSS?`<span class="sslabel">${it.ss?"Superset · then":"Superset · after"} ${esc(exById((it.ss?a.items[xi+1]:a.items[xi-1]).ex).n)}${ssPrev && ssWarnText(exById(a.items[xi-1].ex), ex) ? " ⚠️" : ""}</span>`:""}
-      <div class="exhead"><div class="grow">${it.open ? `<button class="small ghost" data-act="exOpen" data-x="${xi}" id="shut-${xi}" aria-expanded="true" style="float:right;margin-left:6px">▴</button>` : ""}<div class="en">${esc(ex.n)}</div><div class="em">${esc(ex.m)} · ${EQ[ex.e]||""} · ${it.targetSets?`${it.targetSets} × ${isT?`${it.lo}-${it.hi}s`:`${it.lo}-${it.hi}`}`:"no target"} · rest ${fmtTime(it.rest)}</div></div>
+      <div class="exhead"><div class="grow">${it.open ? `<button class="small ghost" data-act="exOpen" data-x="${xi}" id="shut-${xi}" aria-expanded="true" style="float:right;margin-left:6px">▴</button>` : ""}<button class="en exlink" data-act="exPage" data-id="${esc(ex.id)}" id="xpg-${xi}" aria-label="${esc(ex.n)}: open exercise page">${esc(ex.n)} <span aria-hidden="true" style="font-size:0.7em;opacity:.6">›</span></button><div class="em">${esc(ex.m)} · ${EQ[ex.e]||""} · ${it.targetSets?`${it.targetSets} × ${isT?`${it.lo}-${it.hi}s`:`${it.lo}-${it.hi}`}`:"no target"} · rest ${fmtTime(it.rest)}</div></div>
         <div class="iconbtns"><button id="swap-${xi}" data-act="swap" data-x="${xi}" aria-label="Swap ${esc(ex.n)}">⇄ Swap</button><button id="up-${xi}" data-act="sxUp" data-x="${xi}" aria-label="Move ${esc(ex.n)} up" ${xi===0?"disabled":""}>↑</button><button id="rm-${xi}" data-act="sxRm" data-x="${xi}" aria-label="Remove ${esc(ex.n)}">${confirmKey==="sxrm"+xi?"Remove?":"✕"}</button></div></div>
       ${note ? `<div class="notepre">📝 ${esc(note)}</div>` : ""}
       ${it.coachNote ? `<div class="notepre">🤖 ${esc(it.coachNote)}</div>` : ""}
@@ -2105,12 +2106,7 @@ function sessionView(){
         <p class="tip">⏱ ${REST_TIP[klass(ex)]}</p>
         <label class="lbl2" for="note-${xi}">My notes for ${esc(ex.n)} (saved for next time)</label>
         <textarea id="note-${xi}" data-note="${esc(it.ex)}" placeholder="Seat height, grip, cues…" maxlength="300">${esc(note)}</textarea>
-        ${loaded(ex) && ex.t !== "time" && !isAssisted(ex) ? `<label class="hint" for="base-${xi}" style="font-weight:700">Starting resistance (${U()})</label>
-        <input type="text" inputmode="decimal" id="base-${xi}" data-base="${esc(it.ex)}" value="${baseOf(ex) || ""}" placeholder="${baseLikely(ex) ? "Check the machine's sticker, e.g. 75" : "0 for most exercises"}" autocomplete="off" style="max-width:220px">
-        <span class="hint" style="font-size:0.735rem">What the machine adds before any plates. Keep logging plates only; the app adds this for jumps, back-offs and estimated 1RM.</span>` : ""}
-        ${loaded(ex) && ex.t !== "time" ? `<label class="hint" for="step-${xi}" style="font-weight:700">Smallest jump here (${U()})</label>
-        <input type="text" inputmode="decimal" id="step-${xi}" data-stepx="${esc(it.ex)}" value="${ownStep(ex) || ""}" placeholder="Default ${stepFor({ ...ex, id:"" }, 100)}" autocomplete="off" style="max-width:220px">
-        <span class="hint" style="font-size:0.735rem">Have microplates, half-pins or add-on weights? Set the smallest step and jumps use it.</span>` : ""}
+        <button class="small" data-act="exPage" data-id="${esc(ex.id)}" id="xpm-${xi}">📖 Exercise page: history, records, starting resistance, smallest jump</button>
         <button class="small" data-act="painToggle" data-x="${xi}" id="pain-${xi}">${it.pain ? "😣 Marked: this hurt today (tap to undo)" : "😣 This hurt today"}</button>
         ${it.pain ? `<p class="hint" style="font-size:0.735rem;margin:0">Next time this goes lighter. Sharp pain, or pain that lasts, is worth seeing a doctor or physio about.</p>` : ""}
         <button class="small" data-act="uniToggle" data-x="${xi}" id="uni-${xi}">${isUni(ex) ? "↔ One side at a time: on" : "↔ Doing it one side at a time?"}</button>
@@ -2401,6 +2397,55 @@ function historyView(){
   return `<div class="panel"><div class="row"><h2 class="grow">History</h2><span class="hint num">${plural(state.sessions.length,"workout")}</span></div>${aiKey ? `<button class="small" data-act="plOpen" id="plOpenH">📷 Log a past workout from a photo</button>` : ""}${list}</div>`;
 }
 
+// Exercise page: everything about one exercise in one place, opened from its name in a workout or on Progress.
+// Setup that rarely changes (starting resistance, smallest jump) lives here instead of on every workout card.
+function exPageView(){
+  const ex = exById(exPage); if (!ex) return "";
+  const { pts, spark } = exHistory(ex.id), last = pts[pts.length - 1], note = (state.notes || {})[ex.id] || "", r = sfrOf(ex.id);
+  const best = pts.reduce((m, p) => Math.max(m, p.best), 0), heavy = Math.max(0, ...pts.flatMap(p => p.sets.filter(q => q.tag !== "W").map(q => num(q.w) || 0)));
+  const blocks = state.blocks.filter(b => (b.days || []).some(d => d.items.some(it => it.ex === ex.id))).map(b => b.n);
+  const pains = pts.filter(p => p.pain).map(p => fmtDate(p.at));
+  const tiles = `<div class="tiles">${[[pts.length, "workouts"], [last ? agoTxt(last.at) : "–", "last done"], ...(ex.t === "time" || isAssisted(ex) ? [] : [[best ? Math.round(best) : "–", `best est. 1RM (${U()})`], [heavy ? +heavy.toFixed(1) : "–", `heaviest (${U()})`]])].map(([v, l]) => `<div class="tile"><div class="v num">${v}</div><div class="l">${l}</div></div>`).join("")}</div>`;
+  return `<div class="modal keep" role="dialog" aria-modal="true" aria-label="Exercise: ${esc(ex.n)}"><div class="mb" style="padding-top:calc(16px + env(safe-area-inset-top,0px))"><div class="inner" style="display:flex;flex-direction:column;gap:12px;padding-bottom:24px">
+    <div><h2>${esc(ex.n)}</h2><span class="hint">${esc(ex.m)} · ${EQ[ex.e] || ""} · ${{ heavy:"big compound lift", comp:"compound", iso:"isolation", time:"timed hold" }[klass(ex)] || ""}</span></div>
+    ${tiles}
+    ${spark ? `<div class="eyebrow">Estimated 1RM (${U()})</div>${spark}` : ""}
+    ${repRecords(ex)}
+    <p class="tip">💡 ${esc(formTip(ex))}</p>
+    <p class="tip">⏱ ${REST_TIP[klass(ex)]}</p>
+    <label class="lbl2" for="xp-note">My notes (shown in every workout)</label>
+    <textarea id="xp-note" data-note="${esc(ex.id)}" placeholder="Seat height, grip, cues…" maxlength="300">${esc(note)}</textarea>
+    ${loaded(ex) && ex.t !== "time" && !isAssisted(ex) ? `<label class="hint" for="xp-base" style="font-weight:700">Starting resistance (${U()})</label>
+    <input type="text" inputmode="decimal" id="xp-base" data-base="${esc(ex.id)}" value="${baseOf(ex) || ""}" placeholder="${baseLikely(ex) ? "Check the machine's sticker, e.g. 75" : "0 for most exercises"}" autocomplete="off" style="max-width:220px">
+    <span class="hint" style="font-size:0.735rem">What the machine adds before any plates. Keep logging plates only; the app adds this for jumps, back-offs and estimated 1RM.</span>` : ""}
+    ${loaded(ex) && ex.t !== "time" ? `<label class="hint" for="xp-step" style="font-weight:700">Smallest jump here (${U()})</label>
+    <input type="text" inputmode="decimal" id="xp-step" data-stepx="${esc(ex.id)}" value="${ownStep(ex) || ""}" placeholder="Default ${stepFor({ ...ex, id:"" }, 100)}" autocomplete="off" style="max-width:220px">
+    <span class="hint" style="font-size:0.735rem">Have microplates, half-pins or add-on weights? Set the smallest step and jumps use it.</span>` : ""}
+    ${r ? `<p class="hint">How it's felt lately (${plural(r.n, "rating")}): ${r.stim != null ? `works the muscle <b>${FB_STIM[Math.round(r.stim)].toLowerCase()}</b>` : ""}${r.stim != null && r.joint != null ? ", " : ""}${r.joint != null ? `joints <b>${FB_JOINT[Math.round(r.joint)].toLowerCase()}</b>` : ""}.</p>` : ""}
+    ${blocks.length ? `<p class="hint">In your program in block${blocks.length > 1 ? "s" : ""} ${blocks.join(", ")}${state.days.some(d => d.items.some(it => it.ex === ex.id)) ? " and now" : ""}.</p>` : ""}
+    ${pains.length ? `<p class="hint">😣 Marked as hurting: ${pains.slice(-5).join(", ")}.</p>` : ""}
+    ${pts.length ? `<div class="eyebrow">History</div><div class="tablewrap"><table class="st"><thead><tr><th style="text-align:left">Date</th><th style="text-align:left">Sets</th>${ex.t==="time"?"":"<th>e1RM</th>"}</tr></thead><tbody>${pts.slice(-12).reverse().map(p=>`<tr><td style="text-align:left">${fmtDate(p.at)}</td><td style="text-align:left;white-space:normal">${p.sets.map(x=>fmtSet(x, ex.t)).join(", ")}</td>${ex.t==="time"?"":`<td>${p.best?Math.round(p.best):"–"}</td>`}</tr>`).join("")}</tbody></table></div>` : `<p class="hint">No workouts with this one yet.</p>`}
+  </div></div><div class="mf"><button class="primary" data-act="exPageClose" id="exPageClose" style="width:100%">Done</button></div></div>`;
+}
+// one exercise's workouts (best estimated 1RM and the sets) and its 1RM chart, for Progress and the exercise page
+function exHistory(id){
+  const pts = [];
+  state.sessions.forEach(s => { const it = s.items.find(x=>x.ex===id); if (!it) return; const ds = it.sets.filter(x=>x.done); if (!ds.length) return;
+    const best = Math.max(0, ...ds.map(x => e1rm(num(x.w), num(x.r)) || 0)); pts.push({ at:s.end, best, sets:ds, pain:!!it.pain }); });
+  let spark = "";
+  const valid = pts.filter(p=>p.best>0);
+  if (valid.length >= 2){
+    const W2 = 320, H2 = 120, mn = Math.min(...valid.map(p=>p.best)), mx = Math.max(...valid.map(p=>p.best)), span = Math.max(1, mx-mn);
+    const xy = valid.map((p,k)=>[ 36 + k/(valid.length-1)*(W2-8), 8 + (1-(p.best-mn)/span)*(H2-20) ]);
+    spark = `<svg class="chart" viewBox="0 0 ${W2+40} ${H2+10}" role="img" aria-label="Estimated 1RM trend">
+      <line class="grid" x1="36" x2="${W2+36}" y1="8" y2="8"/><line class="grid" x1="36" x2="${W2+36}" y1="${H2-12}" y2="${H2-12}"/>
+      <text x="30" y="12" text-anchor="end">${Math.round(mx)}</text><text x="30" y="${H2-8}" text-anchor="end">${Math.round(mn)}</text>
+      <polyline fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round" points="${xy.map(p=>p.join(",")).join(" ")}"/>
+      ${xy.map((p,k)=>`<circle cx="${p[0]}" cy="${p[1]}" r="${k===xy.length-1?5:3.5}" fill="var(--accent)" stroke="var(--surface)" stroke-width="2"><title>${fmtDate(valid[k].at)}: ${Math.round(valid[k].best)} ${U()}</title></circle>`).join("")}
+    </svg>`;
+  }
+  return { pts, spark };
+}
 // Your last 4 training blocks next to each other, worked out from the workouts themselves (so a unit switch stays right):
 // workouts done, estimated 1RM on the lifts you did in at least two of them, weekly hard sets per muscle, bodyweight and waist.
 function blockCompare(){
@@ -2484,23 +2529,10 @@ function progressView(){
   // exercise detail
   const done = [...new Set(S.flatMap(s => s.items.filter(it=>it.sets.some(x=>x.done)).map(it=>it.ex)))].sort((a,b)=>exById(a).n.localeCompare(exById(b).n));
   if (!progressEx || !done.includes(progressEx)) progressEx = prList.length ? prList[0][0] : done[0];
-  const ex = exById(progressEx), pts = [];
-  S.forEach(s => { const it = s.items.find(x=>x.ex===progressEx); if (!it) return; const ds = it.sets.filter(x=>x.done); if (!ds.length) return;
-    const best = Math.max(0, ...ds.map(x => e1rm(num(x.w), num(x.r)) || 0)); pts.push({ at:s.end, best, sets:ds }); });
-  let spark = "";
-  const valid = pts.filter(p=>p.best>0);
-  if (valid.length >= 2){
-    const W2 = 320, H2 = 120, mn = Math.min(...valid.map(p=>p.best)), mx = Math.max(...valid.map(p=>p.best)), span = Math.max(1, mx-mn);
-    const xy = valid.map((p,k)=>[ 36 + k/(valid.length-1)*(W2-8), 8 + (1-(p.best-mn)/span)*(H2-20) ]);
-    spark = `<svg class="chart" viewBox="0 0 ${W2+40} ${H2+10}" role="img" aria-label="Estimated 1RM trend">
-      <line class="grid" x1="36" x2="${W2+36}" y1="8" y2="8"/><line class="grid" x1="36" x2="${W2+36}" y1="${H2-12}" y2="${H2-12}"/>
-      <text x="30" y="12" text-anchor="end">${Math.round(mx)}</text><text x="30" y="${H2-8}" text-anchor="end">${Math.round(mn)}</text>
-      <polyline fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round" points="${xy.map(p=>p.join(",")).join(" ")}"/>
-      ${xy.map((p,k)=>`<circle cx="${p[0]}" cy="${p[1]}" r="${k===xy.length-1?5:3.5}" fill="var(--accent)" stroke="var(--surface)" stroke-width="2"><title>${fmtDate(valid[k].at)}: ${Math.round(valid[k].best)} ${U()}</title></circle>`).join("")}
-    </svg>`;
-  }
+  const ex = exById(progressEx), { pts, spark } = exHistory(progressEx);
   const detail = `<div class="panel"><h3>Exercise history</h3>
     <select id="progressEx" aria-label="Exercise">${done.map(id=>`<option value="${id}" ${id===progressEx?"selected":""}>${esc(exById(id).n)}</option>`).join("")}</select>
+    <button class="small" data-act="exPage" data-id="${esc(ex.id)}" id="xpg-prog">📖 Open the full exercise page</button>
     ${spark ? `<div class="eyebrow">Estimated 1RM (${U()})</div>${spark}` : ""}
     ${repRecords(ex)}
     <div class="tablewrap"><table class="st"><thead><tr><th>Date</th><th>Sets</th>${ex.t==="time"?"":"<th>Best e1RM</th>"}</tr></thead><tbody>${pts.slice().reverse().map(p=>`<tr><td>${fmtDate(p.at)}</td><td>${p.sets.map(x=>fmtSet(x, ex.t)).join(", ")}</td>${ex.t==="time"?"":`<td>${p.best?Math.round(p.best):"–"}</td>`}</tr>`).join("")}</tbody></table></div></div>`;
@@ -4047,6 +4079,8 @@ document.addEventListener("click", e => {
       { const y0 = b.getBoundingClientRect().top; save(); render(); const nb = document.getElementById(b.id); if (nb){ const d = nb.getBoundingClientRect().top - y0; if (Math.abs(d) > 1) window.scrollBy(0, d); } }
       showNextSet(x); break;
     }
+    case "exPage": exPage = b.dataset.id; render(); break;
+    case "exPageClose": exPage = null; render(); break;
     case "exOpen": { const it = state.active.items[x]; it.open = !it.open; save(); render(); break; }
     case "tag": { const st = state.active.items[x].sets[+b.dataset.s], order = ["", "W", "D", "F"]; st.tag = order[(order.indexOf(st.tag||"")+1) % 4] || undefined; if (!st.tag) delete st.tag; if (st.tag === "W") delete st.rir; save(); render(); break; }
     case "rir": { const st = state.active.items[x].sets[+b.dataset.s], v = +b.dataset.v; st.rir = st.rir === v ? undefined : v; if (st.rir === undefined) delete st.rir; save(); render(); break; }
