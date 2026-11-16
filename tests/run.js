@@ -137,8 +137,8 @@ const ok = (cond, name, detail) => { if (cond){ passes++; } else { fails++; cons
   // damaged saved data: rescue screen, and the stored data is not overwritten
   for (const [name, raw] of [['unreadable', '{"v":1,"units":"lb","days":[],"sessions":[{"id":"a"'], ['wrong-typed', JSON.stringify({ v:1, units:'lb', days:[], sessions:[{ id:'s', dayId:'d', start:1, end:2, items:[] }], body:'oops', goals:5 })]]){
     const qc = await b.newContext(), q = await qc.newPage(); const qe = []; q.on('pageerror', e => qe.push(e.message));
-    await q.goto('file://' + path.resolve(__dirname, '../index.html')); await q.evaluate(r => localStorage.setItem('iron-log-v1', r), raw);
-    await q.reload(); await q.waitForTimeout(800);
+    await q.addInitScript(r => { if (!sessionStorage.getItem('seeded')){ sessionStorage.setItem('seeded', '1'); localStorage.setItem('iron-log-v1', r); } }, raw);
+    await q.goto('file://' + path.resolve(__dirname, '../index.html')); await q.waitForTimeout(800);
     const res = await q.evaluate(() => ({ rescue:!!document.getElementById('rzSave'), kept:localStorage.getItem('iron-log-v1') }));
     ok(res.rescue && res.kept === raw, `${name} save opens rescue and is kept`, JSON.stringify({ rescue:res.rescue, same:res.kept === raw, qe }));
     await qc.close(); }

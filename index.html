@@ -691,6 +691,7 @@ const TREND = { up:"Climbing", steady:"Inching up", flat:"Stalled", down:"Slippi
 
 // ---------- state ----------
 const fresh = () => ({ v:1, units:"lb", days:[], custom:[], sessions:[], active:null, timer:null, tab:"train" });
+let saveBlocked = false, bootBad = null;   // see load()
 let state = load() || fresh();
 const TAGS = { W:"warm-up", D:"drop set", F:"to failure" };
 let swap = null, review = null, goalsOpen = null, pastOpen = false, restoreOpen = false, restoreText = "";
@@ -773,7 +774,6 @@ function cleanState(st){
   return st;
 }
 // Saved data that won't read is kept aside, never overwritten: the app opens the rescue screen instead of starting empty.
-let saveBlocked = false, bootBad = null;
 function load(){ let s = null; try{ s = localStorage.getItem(KEY); return s ? JSON.parse(s) : null; }catch(e){ if (s){ bootBad = "Your saved data couldn't be read."; saveBlocked = true; try{ localStorage.setItem(KEY + "-corrupt", s); }catch(_){} } return null; } }
 // Saving: a burst of typing writes once, a third of a second after the last change, and anything pending is written
 // straight away when the app goes to the background or closes. Every day a snapshot of everything goes to the
