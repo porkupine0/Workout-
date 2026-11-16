@@ -121,6 +121,13 @@ const ok = (cond, name, detail) => { if (cond){ passes++; } else { fails++; cons
   ok(bw[0].kind === 'up' && bw[0].n === 3, 'no 4th set on a jump day', JSON.stringify(bw));
   ok(bw[1].n === 4 && bw[1].reps.split(', ').length === 4, 'build week still adds a 4th set on a same-weight day', JSON.stringify(bw));
   ok(bw[1].n !== 4 || !/\d+, \d+, \d+, \d+/.test(bw[1].why) || bw[1].why.includes(bw[1].reps), '4th-set note matches headline', JSON.stringify(bw[1]));
+  // weight advice: stale logs are flagged, a typo doesn't flip the advice, a clearly fast cut is still called out
+  const wa = await p.evaluate(() => { state.units = 'lb'; state.phase = 'cut'; const set = (f, from = 0) => { state.body.log = {}; for (let d = from; d < 28; d++) state.body.log[dkey(addDays(Date.now(), -d))] = { w:f(d) }; };
+    const zig = d => (d % 2 ? .6 : -.6);
+    set(d => 180 * (1 + .0075 * d / 7) + zig(d), 8); const stale = weightAdvice().txt;
+    set(d => 180 * (1 + .0075 * d / 7) + zig(d)); state.body.log[dkey(addDays(Date.now(), -1))].w = 1800; const typo = weightAdvice().txt;
+    set(d => 180 * (1 + .02 * d / 7) + zig(d)); const fast = weightAdvice().txt; state.phase = undefined; state.body.log = {}; return { stale, typo, fast }; });
+  ok(/days ago/.test(wa.stale) && /On target/.test(wa.typo) && /calories more/.test(wa.fast), 'weight advice: stale, outlier, fast cut', JSON.stringify(wa));
   ok(errs.length === 0, 'no page errors', errs.join('\n'));
   console.log(`${passes} passed, ${fails} failed`); await b.close(); process.exit(fails ? 1 : 0);
 })();

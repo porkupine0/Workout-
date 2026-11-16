@@ -1216,11 +1216,16 @@ function week7(field, t){ const v = []; for (let i = 0; i < 7; i++){ const e = b
 // change per week from a straight line through the last 4 weeks of weigh-ins, so day-to-day water swings average out
 function weightTrend(){
   const pts = Object.keys(blog()).filter(k => blog()[k].w != null && dayOf(k) > addDays(Date.now(), -29)).map(k => [dayOf(k) / (7*dayMs), blog()[k].w]);
-  if (pts.length < 6) return null;
-  const xs = pts.map(p => p[0]); if (Math.max(...xs) - Math.min(...xs) < 2) return null;
-  const mx = avg(xs), my = avg(pts.map(p => p[1]));
-  const b = pts.reduce((a, [x, y]) => a + (x - mx) * (y - my), 0) / pts.reduce((a, [x]) => a + (x - mx) ** 2, 0);
-  return { perWeek:b, pct:b / my * 100 };
+  if (pts.length < 8) return null;
+  const xs = pts.map(p => p[0]); if (Math.max(...xs) - Math.min(...xs) < 2.5) return null;
+  // straight-line fit; one refit without points far off the line (a typo or a salty dinner shouldn't steer it)
+  const fit = P => { const mx = avg(P.map(p => p[0])), my = avg(P.map(p => p[1])), sxx = P.reduce((a, [x]) => a + (x - mx) ** 2, 0);
+    const b = P.reduce((a, [x, y]) => a + (x - mx) * (y - my), 0) / sxx, res = P.map(([x, y]) => y - my - b * (x - mx));
+    return { b, my, sxx, res, se:Math.sqrt(res.reduce((a, r) => a + r * r, 0) / Math.max(1, P.length - 2) / sxx) }; };
+  let F = fit(pts); const mad = [...F.res].map(Math.abs).sort((a, b) => a - b)[Math.floor(F.res.length / 2)] || 0;
+  if (mad > 0){ const keep = pts.filter((p, i) => Math.abs(F.res[i]) <= 4 * 1.48 * mad); if (keep.length >= 8 && keep.length < pts.length) F = fit(keep); }
+  const lastDay = Math.max(...xs) * 7, age = Math.round((startOfDay(Date.now()) - lastDay * dayMs) / dayMs);
+  return { perWeek:F.b, pct:F.b / F.my * 100, se:F.se / F.my * 100, age };
 }
 // how fast bodyweight should change, % per week: gain 0.25–0.5% (slower when advanced) while building (Iraki 2019),
 // lose 0.5–1% while cutting to keep muscle (Helms 2014)
@@ -1232,8 +1237,13 @@ const volCaps = () => phaseOf() === "cut" ? { day:8, week:16 } : phaseOf() === "
 function rateRange(){ const g = state.goals, ph = phaseOf(); if (ph === "cut") return [-1, -.5]; if (ph === "maintain") return [-.25, .25]; if (g.goal === "strength") return [0, .25]; return g.exp === "adv" ? [.1, .25] : [.25, .5]; }
 function weightAdvice(){
   const t = weightTrend(); if (!t) return { kind:"", txt:"Weigh in most mornings, after the bathroom and before eating. After 2 weeks your trend shows here." };
-  const [lo, hi] = rateRange(), p = t.pct, f = x => `${x >= 0 ? "+" : "−"}${Math.abs(x).toFixed(2)}%`, g = phaseOf();
-  const rate = `${f(p)} a week (${t.perWeek >= 0 ? "+" : "−"}${Math.abs(t.perWeek).toFixed(1)} ${U()})`;
+  const [lo, hi] = rateRange(), f = x => `${x >= 0 ? "+" : "−"}${Math.abs(x).toFixed(2)}%`, g = phaseOf();
+  const rate = `${f(t.pct)} a week (${t.perWeek >= 0 ? "+" : "−"}${Math.abs(t.perWeek).toFixed(1)} ${U()})`;
+  if (t.age > 4) return { kind:"", txt:`Your last weigh-in was ${t.age} days ago, so the trend (${rate}) may be out of date. Weigh in a few mornings this week.` };
+  // Day-to-day water swings make a 4-week trend uncertain. Only call it off target when it's clearly outside the range
+  // (about 80% sure); otherwise treat it as on target and say how sure the number is.
+  const z = 1.28 * t.se, p = t.pct < lo && t.pct + z >= lo ? lo : t.pct > hi && t.pct - z <= hi ? hi : t.pct;
+  if (p !== t.pct) return { kind:"", txt:`About on target: ${rate}, give or take ${Math.abs(z).toFixed(2)}%. Too close to call, so no change yet. Keep weighing in.` };
   if (g === "maintain") return Math.abs(p) <= .25 ? { kind:"up", txt:`Steady: ${rate}.` } : { kind:"", txt:`Your weight is ${p > 0 ? "rising" : "falling"} ${rate}. To maintain, keep within ±0.25% a week.` };
   if (g === "cut"){
     if (p > hi) return { kind:"", txt:`You're changing ${rate}. To lose fat and keep muscle, aim for −0.5% to −1% a week: eat about 200 calories less a day or walk more.` };
