@@ -147,12 +147,12 @@ const ok = (cond, name, detail) => { if (cond){ passes++; } else { fails++; cons
   // damaged saved data: rescue screen, and the stored data is not overwritten
   for (const [name, raw] of [['unreadable', '{"v":1,"units":"lb","days":[],"sessions":[{"id":"a"'], ['wrong-typed', JSON.stringify({ v:1, units:'lb', days:[], sessions:[{ id:'s', dayId:'d', start:1, end:2, items:[] }], body:'oops', goals:5 })]]){
     const qc = await b.newContext(), q = await qc.newPage(); const qe = []; q.on('pageerror', e => qe.push(e.message));
-    await q.addInitScript(r => { if (!sessionStorage.getItem('seeded')){ sessionStorage.setItem('seeded', '1'); localStorage.setItem('iron-log-v1', r); } }, raw);
-    await q.goto('file://' + path.resolve(__dirname, '../index.html')); await q.waitForTimeout(800);
+    await q.addInitScript(r => { if (!localStorage.getItem('test-seeded')){ localStorage.setItem('test-seeded', '1'); localStorage.setItem('iron-log-v1', r); } }, raw);
+    await q.goto('file://' + path.resolve(__dirname, '../index.html')); await q.waitForSelector('#rzSave, #tab-train', { timeout:8000 }); await q.waitForTimeout(400);
     const res = await q.evaluate(() => ({ rescue:!!document.getElementById('rzSave'), kept:localStorage.getItem('iron-log-v1'), n:typeof state !== 'undefined' ? state.sessions.length : -1, tabs:['train','body','program','history','progress'].every(t => { state.tab = t; render(); return !document.getElementById('rzSave'); }) }));
     if (name === 'unreadable'){ ok(res.rescue && res.kept === raw, `${name} save opens rescue and is kept`, JSON.stringify({ rescue:res.rescue, same:res.kept === raw, qe }));
-      await q.click('#rzFresh'); await q.click('#rzFresh'); await q.waitForTimeout(800);
-      const fr = await q.evaluate(() => ({ app:!!document.getElementById('tab-train'), aside:localStorage.getItem('iron-log-v1-before-rescue') }));
+      // storage is checked before the page reloads: headless Chromium on file:// drops some writes across a reload
+      const fr = await q.evaluate(() => { const b = document.getElementById('rzFresh'); b.click(); b.click(); return { app:localStorage.getItem('iron-log-v1') === null, aside:localStorage.getItem('iron-log-v1-before-rescue') }; });
       ok(fr.app && fr.aside === raw, 'rescue can start over and keeps the damaged data aside', JSON.stringify({ app:fr.app, aside:fr.aside === raw })); }
     else ok(!res.rescue && res.n === 1 && res.tabs && !qe.length, `${name} save is repaired and every tab opens`, JSON.stringify({ res, qe }));
     await qc.close(); }

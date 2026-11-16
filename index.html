@@ -1823,10 +1823,13 @@ document.addEventListener("focusout", () => { if (renderLater) setTimeout(() => 
 // ---------- views ----------
 // If the page can't be drawn (damaged data, a bug), saving stops and the rescue screen offers a way out
 // instead of a blank app.
-function render(){ try{ drawPage(); }catch(e){ rescue(e, false); } }
+let rescued = false;   // once the rescue screen is up, nothing redraws over it until the app is reopened
+function render(){ if (rescued) return; try{ drawPage(); }catch(e){ rescue(e, false); } }
 // atBoot: the saved data itself couldn't be opened, so saving pauses to protect it. A drawing error later on keeps
 // saving (your latest change is kept) and still offers the same ways out.
 function rescue(err, atBoot = true){
+  if (rescued && document.getElementById("rzSave")) return;   // already showing: keep its buttons as they are
+  rescued = true;
   if (atBoot){ saveBlocked = true; clearTimeout(saveT); } else flushSave();
   const raw = (() => { try{ return localStorage.getItem(KEY) || localStorage.getItem(KEY + "-corrupt") || ""; }catch(e){ return ""; } })();
   document.getElementById("dock").hidden = true;
@@ -1840,13 +1843,13 @@ function rescue(err, atBoot = true){
   document.getElementById("rzReload").onclick = () => location.reload();
   document.getElementById("rzFresh").onclick = e => { const b = e.currentTarget;   // the damaged data stays kept aside under its own name
     if (b.dataset.sure !== "1"){ b.dataset.sure = "1"; b.textContent = "Tap again: your current data is kept aside, not deleted"; return; }
-    try{ if (raw) localStorage.setItem(KEY + "-before-rescue", raw); localStorage.removeItem(KEY); }catch(_){} location.reload(); };
+    try{ if (raw) localStorage.setItem(KEY + "-before-rescue", raw); localStorage.removeItem(KEY); }catch(_){} setTimeout(() => location.reload(), 150); };   // give storage a moment to commit
   document.getElementById("rzSave").onclick = () => { const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([raw], { type:"application/json" })); a.download = `iron-log-rescue-${dkey(Date.now())}.json`; document.body.appendChild(a); a.click(); a.remove(); };
   document.getElementById("rzSnaps").onclick = async () => { const box = document.getElementById("rzList");
     try{ const keys = await snapDo("readonly", st => st.getAllKeys()), vals = await snapDo("readonly", st => st.getAll());
       const L = keys.map((k, i) => ({ k, v:vals[i] })).sort((a, b) => b.v.at - a.v.at);
       box.innerHTML = L.length ? L.map((x, i) => `<div class="row" style="gap:8px;margin-top:6px"><span class="grow">${new Date(x.v.at).toLocaleString()} · ${plural(x.v.n || 0, "workout")}</span><button class="small" data-i="${i}">Use this</button></div>`).join("") : "No snapshots on this phone.";
-      box.querySelectorAll("button[data-i]").forEach(b => b.onclick = () => { if (raw) try{ localStorage.setItem(KEY + "-before-rescue", raw); }catch(e){} localStorage.setItem(KEY, L[+b.dataset.i].v.data); location.reload(); });
+      box.querySelectorAll("button[data-i]").forEach(b => b.onclick = () => { if (raw) try{ localStorage.setItem(KEY + "-before-rescue", raw); }catch(e){} localStorage.setItem(KEY, L[+b.dataset.i].v.data); setTimeout(() => location.reload(), 150); });
     }catch(e){ box.textContent = "Couldn't open the snapshots."; } };
 }
 function drawPage(){
