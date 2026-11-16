@@ -1332,11 +1332,11 @@ async function purl(id){ const c = pcache[id] || (pcache[id] = {}); if (c.thumb 
 function dropCache(id){ const c = pcache[id]; if (c && c.thumb) URL.revokeObjectURL(c.thumb); delete pcache[id]; }
 function photosDue(){ const last = photos().length ? Math.max(...photos().map(p => p.at)) : 0; return { last, days:last ? Math.floor((Date.now() - last) / dayMs) : null, due:!last || Date.now() - last >= PHOTO_EVERY * dayMs }; }
 function checkins(){ const g = {}; photos().forEach(p => (g[dkey(p.at)] = g[dkey(p.at)] || []).push(p)); return Object.entries(g).sort((a, b) => b[0].localeCompare(a[0])); }
-async function addPhoto(file, pose, cal){
+async function addPhoto(file, pose){
   try{
     const img = await blobImage(file), full = await jpeg(scaled(img, 1600), .85), thumb = await jpeg(scaled(img, 360), .75);
     URL.revokeObjectURL(img.src);
-    const p = { id:"p" + uid(), at:Date.now(), pose, w:img.naturalWidth, h:img.naturalHeight, ...(cal ? { cal } : {}) };
+    const p = { id:"p" + uid(), at:Date.now(), pose, w:img.naturalWidth, h:img.naturalHeight };
     await idbPut(p.id, { full, thumb });
     photos().push(p); save(); askPersist(); render();
     analyzePhoto(p);
@@ -1358,7 +1358,7 @@ async function analyzePhoto(p){
     p.a = { ok:!!r.ok, reason:r.reason || null, poseGuess:r.poseGuess || null, lm:r.lm || null, torso:r.torso || null, m:r.m || {}, lines:r.lines || {}, flags:r.flags || [], quality:r.quality != null ? r.quality : null, at:Date.now(), v:SCAN_V };
     delete p.err; if (pcache[p.id]) delete pcache[p.id].lined;
   }catch(e){ p.err = navigator.onLine === false ? "offline" : String((e && e.message) || "failed").slice(0, 160); }
-  busy.delete(p.id); save(); calibCheck(); softRender();
+  busy.delete(p.id); save(); softRender();
 }
 // measures photos still waiting, one at a time; ones that already failed are retried only when asked (app start, back online)
 function analyzeWaiting(retry){ if (navigator.onLine === false) return; const p = photos().find(q => (!q.a || (q.a.v || 1) < SCAN_V) && !busy.has(q.id) && (retry || !q.err)); if (p) analyzePhoto(p).then(() => setTimeout(() => analyzeWaiting(false), 300)); }
@@ -1371,22 +1371,34 @@ const LINE_LABEL = { shoulder:"shoulders", waist:"waist", hip:"hips", chest:"che
 const FLAG_TXT = { "arms-out":"Your arms were held well away from your body, which widens the shoulder reading. Keep them just slightly out.", "arms-touching":"Your arms touched your sides, so the waist wasn't measured. Hold them slightly out next time.", turned:"You look a little turned. Face the camera squarely (or exactly side-on) for a fair comparison.", tilted:"The photo is tilted. Keep the phone upright at chest height.", "low-confidence":"The outline wasn't clear. Use even light and a plain background.", "loose-clothing?":"Loose clothes can hide your shape. Wear the same fitted clothes each time." };
 const REASON_TXT = { "no-person":"No person found in this photo.", "several-people":"More than one person is in the photo, so it wasn't measured.", "cut-off":"Your shoulders and hips need to be in the photo. Step back so you're in frame from head to knees.", unclear:"Couldn't get a clear outline. Stand square to the camera (or exactly side-on), arms slightly out, in even light.", unsupported:"This phone can't run the photo analysis." };
 // the photo a new one is compared with: the latest earlier one of that pose that measured cleanly (no pose or clothing
-// warnings) and isn't the first of a calibration pair
-function prevOf(p){ const L = photos().filter(q => q.pose === p.pose && q.at < p.at && q.a && q.a.ok && q.cal !== 1).sort((a, b) => b.at - a.at);
+// warnings); a flagged one only when there's no clean one
+function prevOf(p){ const L = photos().filter(q => q.pose === p.pose && q.at < p.at && q.a && q.a.ok).sort((a, b) => b.at - a.at);
   return L.find(q => !(q.a.flags || []).length) || L[0]; }   // a flagged one only when there's no clean one
-// Photo noise: two photos taken back to back (step away and back between them) show how much a reading moves with
-// nothing changed. A change smaller than that, and never less than 2%, is treated as noise.
-const pnoise = () => (state.body.pnoise || (state.body.pnoise = {}));
-const photoTh = (pose, k) => Math.max(.02, ((pnoise()[pose] || {})[k] || 0) * 1.5);
-function calibCheck(){
-  const pair = photos().filter(q => q.cal && q.a && !busy.has(q.id)).sort((a, b) => b.at - a.at), a = pair[0];
-  if (!a || a.cal !== 2 || a.calDone) return;
-  const b = pair.find(q => q.cal === 1 && q.pose === a.pose && q.at < a.at); if (!b) return;
-  a.calDone = true;
-  if (!a.a.ok || !b.a.ok || (a.a.flags || []).length || (b.a.flags || []).length){ showToast("One of the calibration photos didn't measure cleanly. Try the pair again."); return; }
-  const out = {}; Object.keys(a.a.m).forEach(k => { const x = a.a.m[k], y = b.a.m[k]; if (x != null && y != null && x + y > 0) out[k] = Math.abs(x - y) / ((x + y) / 2); });
-  pnoise()[a.pose] = { ...out, at:Date.now() }; save();
-  const worst = Math.max(...Object.values(out)); showToast(`Calibrated: your ${POSES[a.pose].toLowerCase()} photos vary by up to ${(worst * 100).toFixed(1)}% with nothing changed. Smaller changes now count as noise.`);
+// Photo noise, measured on your phone: 4 or more shots of one pose taken back to back (step out of frame and back
+// between them), so nothing changed. Only the measurements are kept, not the photos. Each check adds to a pooled spread
+// per pose and measurement; a month-to-month change is called real only past 2.77 × that spread (95% sure for one
+// photo against one photo), never less than 2%. Until a pose is checked, 2% is used.
+const prep = () => (state.body.prep || (state.body.prep = {}));
+function photoSD(pose, k){
+  let ss = 0, df = 0;
+  ((prep()[pose] || {}).sessions || []).forEach(se => { const v = se.shots.map(m => m[k]).filter(x => x != null); if (v.length < 2) return;
+    const mu = avg(v); v.forEach(x => { ss += ((x - mu) / mu) ** 2; }); df += v.length - 1; });
+  return df >= 3 ? { sd:Math.sqrt(ss / df), df } : null;
+}
+const photoTh = (pose, k) => { const r = photoSD(pose, k); return Math.max(.02, r ? 2.77 * r.sd : 0); };
+async function repeatAdd(files, pose){
+  const P = prep(), box = P[pose] || (P[pose] = { sessions:[] }), now = Date.now();
+  let se = box.sessions[box.sessions.length - 1]; if (!se || now - se.at > 2 * 3600e3){ se = { at:now, shots:[], skipped:0 }; box.sessions.push(se); }
+  showToast(`Measuring ${plural(files.length, "photo")}…`); softRender();
+  for (const f of files){
+    try{ const m = await scanner(), img = await blobImage(f), r = await m.analyze(img, pose); URL.revokeObjectURL(img.src);
+      if (r.ok && !(r.flags || []).length) se.shots.push(r.m); else se.skipped++; }catch(e){ se.skipped++; }
+  }
+  box.sessions = box.sessions.filter(x => x.shots.length >= 2 || x === se); save();
+  const need = Math.max(0, 4 - se.shots.length), keys = (METRICS[pose] || []).map(([k]) => k), th = keys.map(k => photoTh(pose, k));
+  showToast(need ? `${se.shots.length} ${POSES[pose].toLowerCase()} shot${se.shots.length === 1 ? "" : "s"} measured${se.skipped ? ` (${se.skipped} skipped: pose warning or not measurable)` : ""}. ${need} more to go.`
+    : `${POSES[pose]} checked: changes over ${Math.round(Math.max(...th) * 100)}% now count as real.`);
+  softRender();
 }
 function metricRows(p){
   const a = p.a, q = prevOf(p); if (!a || !a.ok) return "";
@@ -1406,7 +1418,7 @@ function photoSummary(p){
     if (s != null && s >= T("shoulder")) out.push(`${p.pose === "back" ? "upper back" : "shoulders"} ${pct(s).slice(1)} broader`);
   }
   const nz = Math.max(...(METRICS[p.pose] || []).map(([k]) => T(k)));
-  return out.length ? `Since ${since}: ${out.slice(0, 2).join(", ")}.` : `About the same as ${since}. Changes under ${Math.round(nz * 100)}% are within ${pnoise()[p.pose] ? "your measured" : "a photo's"} noise.`;
+  return out.length ? `Since ${since}: ${out.slice(0, 2).join(", ")}.` : `About the same as ${since}. Changes under ${Math.round(nz * 100)}% are within ${photoSD(p.pose, "waist") || photoSD(p.pose, "belly") ? "your measured" : "a photo's"} noise.`;
 }
 function photoNotes(p){ const a = p.a; return a && a.ok ? (a.flags || []).map(f => `<p class="why">⚠️ ${esc(FLAG_TXT[f] || f.replace(/-/g, " "))}</p>`).join("") : ""; }
 function photoStatus(p){
@@ -1498,12 +1510,15 @@ function bodyView(){
     <p class="hint">Each weigh-in counts on the day it's dated, so gaps don't skew your averages or trend.</p></div>` : "";
   return todayCard + trend + history + photosPanel();
 }
-// one-time check of how much your photos vary with nothing changed: two front photos, stepping away and back between them
+// how much your photos vary with nothing changed, per pose
 function calibBox(){
-  const n = pnoise().front, c1 = photos().filter(q => q.cal === 1 && q.pose === "front").sort((a, b) => b.at - a.at)[0], waiting = c1 && !photos().some(q => q.cal === 2 && q.at > c1.at);
-  return `<details class="why" id="calibPanel"><summary>📏 ${n ? `Photo noise: up to ${(Math.max(...Object.entries(n).filter(([k]) => k !== "at").map(([, v]) => v)) * 100).toFixed(1)}% (measured ${agoTxt(n.at)})` : "Calibrate: how much do your photos vary?"}</summary>
-    <p class="hint" style="font-size:0.735rem;margin:0">Take two front photos back to back: take one, step out of frame, come back to your spot and take the second. Nothing changed between them, so the difference is your setup's noise. Changes smaller than that (never under 2%) won't be called progress.</p>
-    <div class="pslot" style="max-width:none"><label for="cal-${waiting ? 2 : 1}">＋ Calibration photo ${waiting ? "2 of 2" : "1 of 2"}</label><input type="file" accept="image/*" id="cal-${waiting ? 2 : 1}" data-photo="front" data-cal="${waiting ? 2 : 1}"></div></details>`;
+  const st = pose => { const ks = (METRICS[pose] || []).map(([k]) => k), r = ks.map(k => photoSD(pose, k)).filter(Boolean); return r.length ? Math.max(...ks.map(k => photoTh(pose, k))) : null; };
+  const rows = Object.entries(POSES).map(([pose, l]) => { const t = st(pose), se = ((prep()[pose] || {}).sessions || []).slice(-1)[0], open = se && Date.now() - se.at < 2 * 3600e3 && se.shots.length < 4;
+    return `<div class="row" style="gap:8px;align-items:center"><span class="grow hint">${l}: ${t ? `changes over <b>${Math.round(t * 100)}%</b> count` : open ? `${se.shots.length} of 4 shots` : "not checked (2% used)"}</span>
+      <label class="small" for="rep-${pose}" style="border:1px solid var(--line);border-radius:10px;padding:8px 12px;cursor:pointer">＋ Shots</label><input type="file" accept="image/*" multiple id="rep-${pose}" data-rep="${pose}" hidden></div>`; }).join("");
+  return `<details class="why" id="calibPanel"><summary>📏 How steady are your photos?</summary>
+    <p class="hint" style="font-size:0.735rem;margin:0">For each pose, take 4 photos back to back: take one, step out of frame, come back to your spot, take the next. Nothing changed between them, so how much they differ is your setup's noise, and smaller changes won't be called progress. Only the numbers are kept, not these photos. Doing it again on another day makes it more accurate.</p>
+    ${rows}</details>`;
 }
 function photosPanel(){
   const pd = photosDue(), list = checkins(), today = dkey(Date.now()), todays = photos().filter(p => dkey(p.at) === today);
@@ -4328,7 +4343,8 @@ function rerenderList(){
 }
 document.addEventListener("change", e => {
   const t = e.target;
-  if (t.dataset && t.dataset.photo && t.files && t.files[0]){ const f = t.files[0]; t.value = ""; addPhoto(f, t.dataset.photo, t.dataset.cal ? +t.dataset.cal : 0); return; }
+  if (t.dataset && t.dataset.rep && t.files && t.files.length){ const fs = [...t.files]; t.value = ""; repeatAdd(fs, t.dataset.rep); return; }
+  if (t.dataset && t.dataset.photo && t.files && t.files[0]){ const f = t.files[0]; t.value = ""; addPhoto(f, t.dataset.photo); return; }
   if (t.id === "cmpA" || t.id === "cmpB"){ cmp[t.id === "cmpA" ? "a" : "b"] = t.value; render(); return; }
   if (e.target.id === "pe" && picker){ picker.e = e.target.value; render(); }
   if (e.target.id === "progressEx"){ progressEx = e.target.value; render(); }

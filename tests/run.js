@@ -174,14 +174,18 @@ const ok = (cond, name, detail) => { if (cond){ passes++; } else { fails++; cons
     const r = { ok1, ids:state.sessions.map(x => x.id).join(''), day1:state.body.log['2026-01-01'], day2:state.body.log['2026-01-02'], days:state.days.map(d => d.id).join(), cardio:state.cardio.log.length };
     const ok2 = await restoreFrom(JSON.stringify({ ...bk, units:'kg', sessions:[S('z', 1.3e12)] }), 'program', true); r.ok2 = ok2; r.after = state.sessions.length; return r; });
   ok(mg.ok1 && mg.ids === 'acb' && mg.day1.w === 180 && mg.day1.waist === 33 && mg.day2.w === 179 && mg.days === 'keep' && mg.cardio === 1 && mg.ok2 === false && mg.after === 3, 'merge restore adds, keeps, refuses unit mismatch', JSON.stringify(mg));
-  // photo calibration: a back-to-back pair sets the noise threshold (never under 2%); flagged photos aren't a comparison base
-  const pc = await p.evaluate(() => { state.body.photos = []; state.body.pnoise = {}; const m = (taper, waist, shoulder, hip) => ({ ok:true, m:{ taper, waist, shoulder, hip }, flags:[] });
-    const P = (id, at, a, extra) => ({ id, at, pose:'front', a, ...(extra || {}) });
+  // photo repeatability: 4 back-to-back shots set a per-metric threshold (2.77 x pooled spread, never under 2%);
+  // with 2% noise, months with no real change stay quiet; flagged photos aren't a comparison base
+  const pc = await p.evaluate(() => { state.body.photos = []; state.body.prep = {}; const m = (taper, waist, shoulder, hip) => ({ ok:true, m:{ taper, waist, shoulder, hip }, flags:[] });
+    const P = (id, at, a) => ({ id, at, pose:'front', a });
     const base = P('p1', 1000, m(1.50, .80, 1.20, .90)), flagged = P('p2', 2000, { ...m(1.40, .90, 1.20, .90), flags:['turned'] }), now = P('p3', 3000, m(1.535, .79, 1.21, .90));
-    state.body.photos.push(base, flagged, now); const before = photoSummary(now), prev = prevOf(now).id;
-    state.body.photos.push(P('c1', 4000, m(1.50, .80, 1.20, .90), { cal:1 }), P('c2', 4100, m(1.53, .80, 1.20, .90), { cal:2 })); calibCheck();
-    const th = photoTh('front', 'taper'), floor = photoTh('front', 'hip'), after = photoSummary(now); state.body.photos = []; return { prev, before, th:+th.toFixed(3), floor, after }; });
-  ok(pc.prev === 'p1' && /ratio up/.test(pc.before) && pc.th > .029 && pc.floor === .02 && !/ratio up/.test(pc.after), 'photo calibration raises the noise threshold; flagged photos skipped', JSON.stringify(pc));
+    state.body.photos.push(base, flagged, now); const before = photoSummary(now), prev = prevOf(now).id, floor0 = photoTh('front', 'taper');
+    let seed = 123456789; const rnd = () => { seed = (seed * 48271) % 2147483647; return seed / 2147483647; }, gauss = () => { let u = 0; while (!u) u = rnd(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rnd()); };
+    const shot = () => ({ taper:1.5 * (1 + .02 * gauss()), waist:.8 * (1 + .02 * gauss()), shoulder:1.2 * (1 + .02 * gauss()), hip:.9 * (1 + .02 * gauss()) });
+    state.body.prep = { front:{ sessions:[0, 1, 2].map(k => ({ at:k, shots:[shot(), shot(), shot(), shot()] })) } };
+    const th = photoTh('front', 'waist'); let calls = 0; for (let i = 0; i < 400; i++){ const a = shot().waist, b = shot().waist; if (Math.abs(a - b) / b >= th) calls++; }
+    const after = photoSummary(now); state.body.photos = []; state.body.prep = {}; return { prev, before, floor0, th:+th.toFixed(3), falseRate:calls / 400, after }; });
+  ok(pc.prev === 'p1' && /ratio up/.test(pc.before) && pc.floor0 === .02 && pc.th > .04 && pc.th < .08 && pc.falseRate < .1 && !/ratio up/.test(pc.after), 'photo repeatability: quiet when nothing changed; flagged photos skipped', JSON.stringify(pc));
   // blocks side by side: one column per block, e1RM and weekly sets from that block's workouts
   const bc = await p.evaluate(() => { const F = n => lib().find(e => e.n === n).id, W = 7*864e5, t0 = Date.now() - 8*W; state.units = 'lb';
     state.sessions = [0, 1, 4, 5].map(w => ({ id:'k'+w, dayId:'d', dayName:'D', start:t0 + w*W - 3600e3, end:t0 + w*W, items:[{ ex:F('Barbell Bench Press'), sets:[{ w:String(w < 4 ? 135 : 145), r:'8', done:true }] }] }));
