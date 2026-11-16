@@ -87,13 +87,19 @@ textarea{min-height:90px;resize:vertical;font-size:13px}
 .sesshead .clock{font-family:"Barlow Condensed",sans-serif;font-size:30px;font-weight:700;line-height:1}
 .sesshead small{display:block;font-size:12px;opacity:.7;text-transform:uppercase;letter-spacing:.08em}
 .exc{display:flex;flex-direction:column;gap:10px}
+.exc.shut{padding:10px 14px;gap:0}
+.shutbtn{display:flex;align-items:center;gap:10px;width:100%;background:transparent;border:0;padding:4px 0;text-align:left;min-height:44px}
+.shutbtn .en{font-family:"Barlow Condensed",sans-serif;font-size:19px;font-weight:700}
+.shutbtn .sm{color:var(--muted);font-size:13px;font-weight:600}
+.why summary{cursor:pointer;font-size:13px;font-weight:700;color:var(--muted);padding:6px 0}
+.why[open]{display:flex;flex-direction:column;gap:6px}
 .exhead{display:flex;align-items:flex-start;gap:10px}
 .exhead .en{font-family:"Barlow Condensed",sans-serif;font-size:22px;font-weight:700;line-height:1.1}
 .exhead .em{font-size:13px;color:var(--muted)}
 .prev{font-size:13px;color:var(--muted)}
 .hintup{display:inline-block;font-size:12px;font-weight:800;padding:3px 8px;border-radius:999px;background:var(--good-bg);color:var(--good)}
 .sets{display:flex;flex-direction:column;gap:6px}
-.setrow{display:grid;grid-template-columns:28px 1fr 1fr 52px;gap:8px;align-items:center;padding:4px;border-radius:10px}
+.setrow{display:grid;grid-template-columns:28px 1fr 1fr 52px;gap:8px;align-items:center;padding:4px;border-radius:10px;scroll-margin-top:96px;scroll-margin-bottom:calc(var(--dockH, 0px) + 16px)}
 .setrow.done{background:var(--done)}
 .setrow .sn{font-weight:800;text-align:center;color:var(--muted)}
 .setrow input{text-align:center;font-size:19px;font-weight:700;padding:9px 4px}
@@ -1990,6 +1996,16 @@ function blockCard(){
     <span class="hint">${I.intro ? "Learning week, which doubles as a deload: one set fewer per exercise. Stop 3–4 reps short of failure and find your weights." : I.week === easyWeekOf(b.weeks) ? "Easier mid-block week: one set fewer per exercise, same weights, stop 3–4 reps short of failure. The build-up starts again next week." : I.week >= b.weeks ? "Last week of the block: take your working sets to 0–1 reps short of failure (big barbell lifts: 1–2). Next block starts with a learning week that doubles as your deload." : `This week: stop working sets ${rir[0]}–${rir[1]} reps short of failure.`}${(() => { const n = buildCount({ week:I.week, weeks:b.weeks, intro:I.intro, easy:I.week === easyWeekOf(b.weeks) }); return n ? ` Build week: up to ${n} exercise${n > 1 ? "s" : ""} a day get${n > 1 ? "" : "s"} a 4th set when they're still progressing.` : ""; })()}</span></div>`;
 }
 
+// after ✓, bring the next set to log into view (a superset partner first), without focusing a box or opening the keyboard
+function showNextSet(x){
+  const its = state.active ? state.active.items : [], open = i => its[i] && its[i].sets.findIndex(q => !q.done);
+  const order = [];
+  if (its[x] && its[x].ss) order.push(x + 1); if (x > 0 && its[x-1] && its[x-1].ss) order.push(x - 1);
+  order.push(x); for (let i = 0; i < its.length; i++) order.push((x + 1 + i) % its.length);
+  for (const i of order){ const k = open(i); if (k != null && k >= 0){ const el = document.getElementById(`ck-${i}-${k}`), row = el && el.closest(".setrow"); if (!row) return;
+    const r = row.getBoundingClientRect(), dock = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--dockH")) || 0;
+    if (r.top < 90 || r.bottom > innerHeight - dock - 8) row.scrollIntoView({ block:"center", behavior:matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" }); return; } }
+}
 function sessionView(){
   const a = state.active;
   const items = a.items.map((it, xi) => {
@@ -2008,17 +2024,27 @@ function sessionView(){
           ${s.tag!=="W"&&!isT?`<span class="rir" role="group" aria-label="Reps in reserve"><span class="rl">RIR</span>${[0,1,2,3,4].map(v=>`<button data-act="rir" data-x="${xi}" data-s="${si}" data-v="${v}" id="rir-${xi}-${si}-${v}" aria-pressed="${s.rir===v}">${v===4?"4+":v}</button>`).join("")}</span>`:""}</span>` : ""}
       </div>`).join("");
     const note = (state.notes||{})[it.ex] || "";
+    // Focus: a finished exercise shrinks to one line once you've logged a set elsewhere (so its RIR can still be set)
+    const allDone = it.sets.length && it.sets.every(q => q.done), lastTs = Math.max(0, ...it.sets.map(q => q.ts || 0));
+    if (allDone && !it.open && !it.cal && a.lastDone > lastTs) return `<div class="panel exc shut ${inSS?"ss":""} ${it.ss?"ss-a":""} ${ssPrev?"ss-b":""}">
+      <button class="shutbtn" data-act="exOpen" data-x="${xi}" id="open-${xi}" aria-expanded="false"><span class="ck" aria-hidden="true" style="background:var(--good);border-color:var(--good);color:var(--on-good);width:28px;height:28px;display:grid;place-items:center;border-radius:8px;font-size:14px">✓</span>
+        <span class="grow"><span class="en">${esc(ex.n)}</span><br><span class="sm num">${it.sets.map(q => fmtSet(q, ex.t)).join(", ")}${it.sets.some(q => q.pr) ? " · 🏆" : ""}</span></span><span class="sm" aria-hidden="true">▾</span></button></div>`;
+    // the reasons behind today's plan sit behind one toggle, so the card shows what to lift
+    const whys = [
+      ssPrev && ssWarnText(exById(a.items[xi-1].ex), ex) ? `⚠️ Starts tired from ${esc(exById(a.items[xi-1].ex).n)}. Compare its numbers to other superset days, not your fresh best.` : "",
+      it.fbWhy ? `${it.fbAdj > 0 ? "📈" : "📉"} ${esc(it.fbWhy)}` : it.extra ? `📈 Build week: a 4th set, since this one's still progressing. If set 4 lands under ${it.lo || 8}, it goes back to 3 for the rest of the block.` : "",
+      baseLikely(ex) && loaded(ex) && !(ex.id in state.base) ? `⚙️ This machine may add starting resistance (look for a sticker). Enter it once under Form tip, notes &amp; options, or put 0 if there isn't one.` : ""
+    ].filter(Boolean);
     return `<div class="panel exc ${inSS?"ss":""} ${it.ss?"ss-a":""} ${ssPrev?"ss-b":""}">
-      ${inSS?`<span class="sslabel">${it.ss?"Superset · then":"Superset · after"} ${esc(exById((it.ss?a.items[xi+1]:a.items[xi-1]).ex).n)}</span>`:""}${ssPrev && ssWarnText(exById(a.items[xi-1].ex), ex) ? `<span class="hint" style="font-size:12.5px">⚠️ Starts tired from ${esc(exById(a.items[xi-1].ex).n)}. Compare its numbers to other superset days, not your fresh best.</span>` : ""}
-      <div class="exhead"><div class="grow"><div class="en">${esc(ex.n)}</div><div class="em">${esc(ex.m)} · ${EQ[ex.e]||""} · ${it.targetSets?`${it.targetSets} × ${isT?`${it.lo}-${it.hi}s`:`${it.lo}-${it.hi}`}`:"no target"} · rest ${fmtTime(it.rest)}</div></div>
+      ${inSS?`<span class="sslabel">${it.ss?"Superset · then":"Superset · after"} ${esc(exById((it.ss?a.items[xi+1]:a.items[xi-1]).ex).n)}${ssPrev && ssWarnText(exById(a.items[xi-1].ex), ex) ? " ⚠️" : ""}</span>`:""}
+      <div class="exhead"><div class="grow">${it.open ? `<button class="small ghost" data-act="exOpen" data-x="${xi}" id="shut-${xi}" aria-expanded="true" style="float:right;margin-left:6px">▴</button>` : ""}<div class="en">${esc(ex.n)}</div><div class="em">${esc(ex.m)} · ${EQ[ex.e]||""} · ${it.targetSets?`${it.targetSets} × ${isT?`${it.lo}-${it.hi}s`:`${it.lo}-${it.hi}`}`:"no target"} · rest ${fmtTime(it.rest)}</div></div>
         <div class="iconbtns"><button id="swap-${xi}" data-act="swap" data-x="${xi}" aria-label="Swap ${esc(ex.n)}">⇄ Swap</button><button id="up-${xi}" data-act="sxUp" data-x="${xi}" aria-label="Move ${esc(ex.n)} up" ${xi===0?"disabled":""}>↑</button><button id="rm-${xi}" data-act="sxRm" data-x="${xi}" aria-label="Remove ${esc(ex.n)}">${confirmKey==="sxrm"+xi?"Remove?":"✕"}</button></div></div>
       ${note ? `<div class="notepre">📝 ${esc(note)}</div>` : ""}
       ${it.coachNote ? `<div class="notepre">🤖 ${esc(it.coachNote)}</div>` : ""}
       ${last ? `<div class="prev num">Last time (${agoTxt(last.at)}): ${last.sets.map(s=>fmtSet(s, ex.t)).join(", ")}${last.first ? ` · started ${SIDE[last.first].toLowerCase()}` : ""}</div>` : `<div class="prev">First time logging this one.</div>`}
       ${it.target ? targetLine(it, ex) : hint ? `<span class="hintup">${hint}</span>` : ""}
-      ${it.fbWhy ? `<p class="hint" style="font-size:12.5px">${it.fbAdj > 0 ? "📈" : "📉"} ${esc(it.fbWhy)}</p>` : it.extra ? `<p class="hint" style="font-size:12.5px">📈 Build week: a 4th set, since this one's still progressing. If set 4 lands under ${it.lo || 8}, it goes back to 3 for the rest of the block.</p>` : ""}
+      ${whys.length ? `<details class="why" id="why-${esc(it.ex)}-${xi}"><summary>ⓘ Why today${it.fbAdj > 0 || it.extra ? ": one extra set" : it.fbAdj < 0 ? ": one set fewer" : ""}</summary>${whys.map(w => `<p class="hint" style="font-size:12.5px;margin:0">${w}</p>`).join("")}</details>` : ""}
       ${sideRow(it, ex, xi)}
-      ${baseLikely(ex) && loaded(ex) && !(ex.id in state.base) ? `<p class="hint" style="font-size:12.5px">⚙️ This machine may add starting resistance (look for a sticker). Enter it once under Form tip, notes &amp; options, or put 0 if there isn't one.</p>` : ""}
       ${warmupHelp(it, ex, xi)}
       <div class="setlbl"><span>Set</span><span>${isT?"+Weight":"Weight"}</span><span>${isT?"Time":isUni(ex)?"Reps L · R":"Reps"}</span><span></span></div>
       <div class="sets">${rows}</div>
@@ -3935,8 +3961,9 @@ document.addEventListener("click", e => {
           startTimer(tr.sec, `Next: ${exById(next.ex).n} · ${tr.why}`);
         } else startTimer(s.tag === "W" ? Math.min(60, it.rest) : it.rest, prevIt ? `Next round: ${exById(prevIt.ex).n}` : `Next: ${nx && !nx.done ? ex.n : "next exercise"}`); }
       else state.timer = null;
-      save(); render(); break;
+      save(); render(); showNextSet(x); break;
     }
+    case "exOpen": { const it = state.active.items[x]; it.open = !it.open; save(); render(); break; }
     case "tag": { const st = state.active.items[x].sets[+b.dataset.s], order = ["", "W", "D", "F"]; st.tag = order[(order.indexOf(st.tag||"")+1) % 4] || undefined; if (!st.tag) delete st.tag; if (st.tag === "W") delete st.rir; save(); render(); break; }
     case "rir": { const st = state.active.items[x].sets[+b.dataset.s], v = +b.dataset.v; st.rir = st.rir === v ? undefined : v; if (st.rir === undefined) delete st.rir; save(); render(); break; }
     case "swap": swap = { x }; render(); window.scrollTo(0,0); break;

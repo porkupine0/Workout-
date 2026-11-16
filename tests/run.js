@@ -157,6 +157,12 @@ const ok = (cond, name, detail) => { if (cond){ passes++; } else { fails++; cons
     state.sessions = [{ id:'j1', dayId:'dJ', start:Date.now()-W-3600e3, end:Date.now()-W, items:[{ ex:F('Wide-Grip Lat Pulldown'), sets:[S(150,12),S(150,10),S(150,9)] }], fb:{ m:{ Back:{ sore:2 } } } }];
     startSession(state.days[0], null); const it = state.active.items[0], r = { kind:it.target.kind, n:it.sets.length }; state.active = null; state.phase = undefined; return r; });
   ok(jd.kind === 'up' && jd.n === 2, 'jump day: sore still removes a set', JSON.stringify(jd));
+  // focus mode: a finished exercise stays open until a set elsewhere is logged, then shrinks to one line; tap reopens
+  const fm = await p.evaluate(() => { const F = n => lib().find(e => e.n === n).id; state.days = [{ id:'dF', name:'F', items:[{ ex:F('Dumbbell Curl'), sets:2, lo:8, hi:12, rest:60 }, { ex:F('Rope Pushdown'), sets:2, lo:8, hi:12, rest:60 }] }];
+    startSession(state.days[0], null); const a = state.active, t0 = Date.now(); a.items[0].sets.forEach((q, k) => { q.r = '10'; q.done = true; q.ts = t0 + k; }); a.lastDone = t0 + 1; render();
+    const openAfterOwn = !document.getElementById('open-0'); a.items[1].sets[0].r = '10'; a.items[1].sets[0].done = true; a.items[1].sets[0].ts = t0 + 5; a.lastDone = t0 + 5; render();
+    const shut = !!document.getElementById('open-0'); document.getElementById('open-0').click(); const reopened = !!document.getElementById('w-0-0'); state.active = null; return { openAfterOwn, shut, reopened }; });
+  ok(fm.openAfterOwn && fm.shut && fm.reopened, 'focus mode collapses finished exercises after you move on', JSON.stringify(fm));
   ok(errs.length === 0, 'no page errors', errs.join('\n'));
   // damaged saved data: rescue screen, and the stored data is not overwritten
   for (const [name, raw] of [['unreadable', '{"v":1,"units":"lb","days":[],"sessions":[{"id":"a"'], ['wrong-typed', JSON.stringify({ v:1, units:'lb', days:[], sessions:[{ id:'s', dayId:'d', start:1, end:2, items:[] }], body:'oops', goals:5 })]]){
