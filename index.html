@@ -693,9 +693,11 @@ function convertUnits(to){
   // each value remembers what it was first logged as, so switching back gives the exact original (lossless)
   const from = state.units, f = to === "kg" ? 1 / LB : LB, O = state.unitOrig || (state.unitOrig = {});
   const cv = (obj, key, path, step, mul) => { const v = obj[key]; if (v === "" || v == null || isNaN(parseFloat(v))) return;
-    const o = O[path]; if (o && o.u === to){ obj[key] = typeof v === "string" ? String(o.v) : +o.v; delete O[path]; return; }
-    if (!o) O[path] = { u:from, v:typeof v === "string" ? v : +v };
-    const x = Math.round(parseFloat(v) * (mul || f) / step) * step; obj[key] = typeof v === "string" ? String(+x.toFixed(2)) : +x.toFixed(2); };
+    // the original only comes back if the value is still what the switch made it; a value you corrected since is converted
+    const o = O[path]; if (o && o.u === to && o.c != null && +o.c === parseFloat(v)){ obj[key] = typeof v === "string" ? String(o.v) : +o.v; delete O[path]; return; }
+    const x = +(Math.round(parseFloat(v) * (mul || f) / step) * step).toFixed(2);
+    O[path] = o && o.u === from && o.c != null && +o.c === parseFloat(v) ? o : { u:from, v:typeof v === "string" ? v : +v };
+    O[path].c = x; obj[key] = typeof v === "string" ? String(x) : x; };
   const item = (it, p) => { (it.sets || []).forEach((q, k) => cv(q, "w", `${p}.${k}`, .5)); if (it.target){ cv(it.target, "w", p + ".t", .5); if (it.target.from != null) cv(it.target, "from", p + ".f", .5); } if (it.back && it.back.w !== "") cv(it.back, "w", p + ".b", .5); };
   state.sessions.forEach(x => x.items.forEach((it, i) => item(it, `s.${x.id}.${i}`))); if (state.active) state.active.items.forEach((it, i) => item(it, `a.${state.active.id}.${i}`));
   ["base","steps"].forEach(k => Object.keys(state[k] || {}).forEach(id => cv(state[k], id, `${k}.${id}`, .25)));
@@ -1727,7 +1729,7 @@ async function restoreFrom(text, tab){
   showToast(`Restored ${plural(sm.n,"workout")}${sm.n ? ` (${yr(sm.from)}${yr(sm.to) !== yr(sm.from) ? `–${yr(sm.to)}` : ""})` : ""}${n ? ` and ${plural(n, "photo")}` : ""}${dropped ? `, skipped ${dropped} damaged` : ""}. Undo it under Settings → Safety snapshots.`); render();
   return true;
 }
-const hasData = () => state.sessions.length > 0 || state.days.length > 0;
+const hasData = () => state.sessions.length > 0 || state.days.length > 0 || !!state.active || Object.keys((state.body && state.body.log) || {}).length > 0;
 // a Home Screen app keeps its own data, separate from Safari: when it's empty, offer to bring Safari's data over
 function moveInCard(){
   if (!isIOS || !standalone() || hasData()) return "";
@@ -3769,6 +3771,13 @@ document.addEventListener("click", e => {
     // body
     case "bwSave": case "waistSave": { const isW = act === "bwSave", el = document.getElementById(isW ? "bwIn" : "waistIn"), v = num(el ? el.value : ""), k = bwKey(), when = k === dkey(Date.now()) ? "" : ` for ${fmtDate(dayOf(k))}`;
       if (v == null || v <= 0){ showToast(isW ? "Enter your weight first." : "Enter your waist first."); render(); break; }
+      { // catch typos (1800 for 180, kg typed in lb) before they bend the trend and the advice
+        const kgv = isW ? (U() === "kg" ? v : v / LB) : (lenUnit() === "cm" ? v : v * 2.54);
+        if (isW ? kgv < 30 || kgv > 300 : kgv < 45 || kgv > 200){ showToast(isW ? `${v} ${U()} doesn't look right. Check the number and the unit.` : `${v} ${lenUnit()} doesn't look right. Check the number and the unit.`); render(); break; }
+        const fld = isW ? "w" : "waist", near = Object.keys(blog()).filter(d => d !== k && blog()[d][fld] != null && Math.abs(dayOf(d) - dayOf(k)) <= (isW ? 10 : 45) * dayMs), ref = near.length ? avg(near.map(d => blog()[d][fld])) : null;
+        if (ref && Math.abs(v - ref) / ref > (isW ? .07 : .1) && confirmKey !== act + ":" + v){ confirmKey = act + ":" + v; clearTimeout(confirmTimer); confirmTimer = setTimeout(() => { confirmKey = null; }, 8000);
+          showToast(`${v} is far from your recent ${Math.round(ref * 10) / 10}. Tap Save again if it's right.`); render(); break; }
+        confirmKey = null; }
       entry(k)[isW ? "w" : "waist"] = Math.round(v * 10) / 10; save(); askPersist(); showToast(isW ? `Saved ${Math.round(v * 10) / 10} ${U()}${when}.` : `Saved waist ${Math.round(v * 10) / 10} ${lenUnit()}${when}.`); bwDay = null; render(); break; }
     case "bwDay": bwDay = b.dataset.v || null; render(); break;
     case "bwEdit": { const k = b.dataset.k; bwDay = k === dkey(Date.now()) ? null : k; render(); window.scrollTo({ top:0, behavior:"smooth" }); setTimeout(() => { const el = document.getElementById("bwIn"); if (el) el.focus(); }, 300); break; }

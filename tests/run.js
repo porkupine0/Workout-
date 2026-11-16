@@ -100,6 +100,18 @@ const ok = (cond, name, detail) => { if (cond){ passes++; } else { fails++; cons
     state.sessions = [4,3,2,1].map(k => ({ id:'c'+k, dayId:'d1', start:Date.now()-k*7*864e5-3600e3, end:Date.now()-k*7*864e5, items:[{ ex:F.id, sets:[S(140,10),S(140,9),S(140,8)] }] }));
     const t = targetFor({ ex:F.id, sets:3, lo:8, hi:12 }, { dayId:'d1', week:3, weeks:6, rir:[1,2] }); state.phase = undefined; return t.flag; });
   ok(cutT === 'cut', 'cutting holds a flat lift instead of resetting', cutT);
+  // body-only data is converted when switching units, and a value corrected after a switch is not reverted
+  const bu = await p.evaluate(() => { state.units = 'lb'; state.unitOrig = {}; state.sessions = []; state.days = []; state.active = null; state.body.log = { '2026-01-02':{ w:180, waist:34 } };
+    const go = () => document.querySelector('[data-act="units"][data-v="kg"]');
+    state.tab = 'program'; render(); const btn = go(); if (!btn) return 'no units button'; btn.click(); if (state.units !== 'kg') { go().click(); }
+    const kg = { ...state.body.log['2026-01-02'] }; state.body.log['2026-01-02'].w = 79; convertUnits('lb'); state.units = 'lb';
+    return { kg, back:state.body.log['2026-01-02'] }; });
+  ok(bu.kg && bu.kg.w === 81.6 && bu.kg.waist === 86.4 && bu.back.w === 174.2 && bu.back.waist === 34, 'body-only units convert; corrections stick', JSON.stringify(bu));
+  // typos in a weigh-in are caught
+  const typo = await p.evaluate(() => { state.units = 'lb'; const k = dkey(Date.now()); state.body.log = {}; for (let i = 1; i < 7; i++) state.body.log[dkey(addDays(Date.now(), -i))] = { w:180 };
+    state.tab = 'body'; render(); const save = v => { document.getElementById('bwIn').value = v; document.getElementById('bwSave').click(); return (state.body.log[k] || {}).w; };
+    return [save('1800'), save('81.6'), save('81.6'), save('181')]; });
+  ok(typo[0] == null && typo[1] == null && typo[2] === 81.6 && typo[3] === 181, 'weigh-in typos need a second tap or are refused', JSON.stringify(typo));
   ok(errs.length === 0, 'no page errors', errs.join('\n'));
   console.log(`${passes} passed, ${fails} failed`); await b.close(); process.exit(fails ? 1 : 0);
 })();
