@@ -2278,13 +2278,17 @@ function settingsView(){
     <button class="small danger" data-act="wipe" id="wipe">${confirmKey==="wipe"?"Tap again: this deletes everything":"Delete all data"}</button></div>`;
 }
 
+let histShow = 25;
 function historyView(){
   if (!state.sessions.length) return `<div class="panel"><h2>No workouts yet</h2><p class="hint">Finished workouts show up here with every set you did.</p>${aiKey ? `<button data-act="plOpen" id="plOpenH">📷 Log a workout from a photo</button>` : ""}</div>`;
-  const list = [...state.sessions].map((s,i)=>[s,i]).reverse().map(([s,i]) => `<div class="sess"><div class="sh"><b>${esc(s.dayName)}</b><span class="sm">${fmtDate(s.end)}</span></div>
+  // the newest 25 at first: drawing years of workouts on every tap made the tab slow
+  const shown = [...state.sessions].map((s,i)=>[s,i]).reverse().slice(0, histShow), more = state.sessions.length - shown.length;
+  const list = shown.map(([s,i]) => `<div class="sess"><div class="sh"><b>${esc(s.dayName)}</b><span class="sm">${fmtDate(s.end)}</span></div>
     <span class="sm num">${fmtTime((s.end-s.start)/1000)} · ${plural(setsOf(s),"set")} · ${volumeOf(s).toLocaleString()} ${U()}${s.prs&&s.prs.length?` · 🏆 ${plural(s.prs.length,"PR")}`:""}${s.ready && s.ready.level !== "normal" ? ` · felt ${READY_WORD[s.ready.level] || s.ready.level}` : ""}${s.from === "photo" ? " · 📷 from a photo" : ""}</span>
     <details id="hdet-${esc(s.id)}"><summary>Details</summary>${s.items.map((it, ii) => ({ it, ii })).filter(({ it }) => it.sets.some(x=>x.done)).map(({ it, ii })=>{ const ex = exById(it.ex); return `<div class="ex num"><b>${esc(ex.n)}:</b> ${it.sets.filter(x=>x.done).map(x=>fmtSet(x, ex.t)).join(", ")}${it.first ? ` · started ${SIDE[it.first].toLowerCase()}` : ""} <button class="chip" style="padding:2px 8px;font-size:12px" data-act="histPain" data-sid="${esc(s.id)}" data-i="${ii}" id="hp-${esc(s.id)}-${ii}" aria-pressed="${!!it.pain}">😣 ${it.pain ? "Hurt" : "Hurt?"}</button></div>`; }).join("") || `<div class="ex hint">No completed sets.</div>`}
       <button class="small" style="margin-top:6px" data-act="saveHist" data-sid="${esc(s.id)}" id="svh-${i}">💾 Save as a workout</button>
-      <button class="small danger" style="margin-top:6px" data-act="delSess" data-i="${i}" id="dels-${i}">${confirmKey==="dels"+i?"Tap again to delete":"Delete this workout"}</button></details></div>`).join("");
+      <button class="small danger" style="margin-top:6px" data-act="delSess" data-i="${i}" id="dels-${i}">${confirmKey==="dels"+i?"Tap again to delete":"Delete this workout"}</button></details></div>`).join("") +
+    (more > 0 ? `<button data-act="histMore" id="histMore">Show ${Math.min(more, 25)} older (${more} more)</button>` : "");
   return `<div class="panel"><div class="row"><h2 class="grow">History</h2><span class="hint num">${plural(state.sessions.length,"workout")}</span></div>${aiKey ? `<button class="small" data-act="plOpen" id="plOpenH">📷 Log a past workout from a photo</button>` : ""}${list}</div>`;
 }
 
@@ -3933,6 +3937,7 @@ document.addEventListener("click", e => {
     case "fbSore": fbSet("sore", b.dataset.k, +b.dataset.v); break;
     case "fbStim": fbSet("stim", b.dataset.k, +b.dataset.v); break;
     case "fbJoint": fbSet("joint", b.dataset.k, +b.dataset.v); break;
+    case "histMore": histShow += 25; render(); break;
     case "tmrAdd": if (state.timer){ state.timer.end += (+b.dataset.v)*1000; state.timer.total = Math.max(5, state.timer.total + (+b.dataset.v)); save(); renderDock(); } break;
     case "tmrClose": state.timer = null; save(); renderDock(); break;
     case "dockRest": { const its = state.active.items, it = its.find(q => q.sets.some(z => !z.done)) || its[its.length-1];
