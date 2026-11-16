@@ -163,6 +163,14 @@ const ok = (cond, name, detail) => { if (cond){ passes++; } else { fails++; cons
     const openAfterOwn = !document.getElementById('open-0'); a.items[1].sets[0].r = '10'; a.items[1].sets[0].done = true; a.items[1].sets[0].ts = t0 + 5; a.lastDone = t0 + 5; render();
     const shut = !!document.getElementById('open-0'); document.getElementById('open-0').click(); const reopened = !!document.getElementById('w-0-0'); state.active = null; return { openAfterOwn, shut, reopened }; });
   ok(fm.openAfterOwn && fm.shut && fm.reopened, 'focus mode collapses finished exercises after you move on', JSON.stringify(fm));
+  // merge restore: adds what's missing, keeps what's here, refuses a unit mismatch
+  const mg = await p.evaluate(async () => { const F = lib()[0].id, S = (id, end) => ({ id, dayId:'d', dayName:id, start:end - 3600e3, end, items:[{ ex:F, sets:[{ w:'100', r:'8', done:true }] }] });
+    state.units = 'lb'; state.days = [{ id:'keep', name:'Mine', items:[] }]; state.sessions = [S('a', 1e12), S('b', 1.2e12)]; state.body.log = { '2026-01-01':{ w:180 } }; state.cardio.log = [];
+    const bk = { units:'lb', days:[{ id:'other', name:'Theirs', items:[] }], sessions:[S('b', 1.2e12), S('c', 1.1e12)], body:{ log:{ '2026-01-01':{ w:181, waist:33 }, '2026-01-02':{ w:179 } }, photos:[] }, cardio:{ log:[{ id:'k1', at:5, min:30, kind:'walk' }] } };
+    const ok1 = await restoreFrom(JSON.stringify(bk), 'program', true);
+    const r = { ok1, ids:state.sessions.map(x => x.id).join(''), day1:state.body.log['2026-01-01'], day2:state.body.log['2026-01-02'], days:state.days.map(d => d.id).join(), cardio:state.cardio.log.length };
+    const ok2 = await restoreFrom(JSON.stringify({ ...bk, units:'kg', sessions:[S('z', 1.3e12)] }), 'program', true); r.ok2 = ok2; r.after = state.sessions.length; return r; });
+  ok(mg.ok1 && mg.ids === 'acb' && mg.day1.w === 180 && mg.day1.waist === 33 && mg.day2.w === 179 && mg.days === 'keep' && mg.cardio === 1 && mg.ok2 === false && mg.after === 3, 'merge restore adds, keeps, refuses unit mismatch', JSON.stringify(mg));
   ok(errs.length === 0, 'no page errors', errs.join('\n'));
   // damaged saved data: rescue screen, and the stored data is not overwritten
   for (const [name, raw] of [['unreadable', '{"v":1,"units":"lb","days":[],"sessions":[{"id":"a"'], ['wrong-typed', JSON.stringify({ v:1, units:'lb', days:[], sessions:[{ id:'s', dayId:'d', start:1, end:2, items:[] }], body:'oops', goals:5 })]]){

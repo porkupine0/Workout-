@@ -1753,7 +1753,7 @@ function readCalOffer(){
 }
 
 // ---------- restoring a backup ----------
-async function restoreFrom(text, tab){
+async function restoreFrom(text, tab, merge){
   let obj, data;
   try{ obj = JSON.parse(String(text || "").trim()); data = obj.data || obj; if (!data || typeof data !== "object" || !Array.isArray(data.days) || !Array.isArray(data.sessions)) throw new Error("bad"); }
   catch(err){ showToast("That doesn't look like an Iron Log backup."); render(); return false; }
@@ -1772,13 +1772,30 @@ async function restoreFrom(text, tab){
     else if (["body","goals","cardio","block","notes","base","steps"].includes(k) && v != null && (typeof v !== "object" || Array.isArray(v))) delete data[k]; }
   if (data.body){ if (!data.body.log || typeof data.body.log !== "object" || Array.isArray(data.body.log)) data.body.log = {}; if (!Array.isArray(data.body.photos)) data.body.photos = []; }
   const old = state;
-  state = { ...fresh(), ...data, timer:null, tab:tab || "program" };
+  // Merge (phone + iPad, or an older backup): add what this phone doesn't have and keep everything it does. Workouts
+  // match by id, body entries by date (this phone's numbers win), photos and cardio by id. Program and settings stay.
+  let added = null;
+  if (merge){
+    if (data.units && data.units !== state.units){ showToast(`That backup is in ${esc(data.units)} and this phone is in ${state.units}. Switch units to match, then merge.`); render(); return false; }
+    const next = JSON.parse(JSON.stringify(state)), have = new Set(next.sessions.map(x => x.id)), newS = data.sessions.filter(x => x.id && !have.has(x.id));
+    next.sessions = [...next.sessions, ...newS].sort((a, b) => a.end - b.end);
+    const ids = new Set(next.custom.map(c => c.id)); (data.custom || []).forEach(c => { if (!ids.has(c.id)) next.custom.push(c); });
+    let days = 0; Object.entries((data.body && data.body.log) || {}).forEach(([k, e]) => { if (!e || typeof e !== "object" || !/^\d{4}-\d\d-\d\d$/.test(k)) return; const mine = next.body.log[k] || (next.body.log[k] = {}); let any = false; Object.entries(e).forEach(([f, v]) => { if (mine[f] == null && v != null){ mine[f] = v; any = true; } }); if (any) days++; });
+    const pids = new Set(next.body.photos.map(q => q.id)), newP = ((data.body && data.body.photos) || []).filter(q => q && q.id && !pids.has(q.id)); next.body.photos.push(...newP);
+    const cids = new Set(next.cardio.log.map(q => q.id)); ((data.cardio && Array.isArray(data.cardio.log)) ? data.cardio.log : []).forEach(q => { if (q && q.id && !cids.has(q.id)) next.cardio.log.push(q); });
+    next.cardio.log.sort((a, b) => a.at - b.at);
+    added = { s:newS.length, days, photos:new Set(newP.map(q => q.id)) };
+    data = next;
+  }
+  state = merge ? { ...data, timer:old.timer, tab:tab || "program" } : { ...fresh(), ...data, timer:null, tab:tab || "program" };
   try{ migrate(); for (const t of ["train","body","program","history","progress"]){ state.tab = t; drawPage(); } state.tab = tab || "program"; }catch(e){ state = old; showToast("That backup has data the app can't use, so nothing was changed."); render(); return false; }
   review = null; restoreText = ""; restoreOpen = false; save();
   let n = 0;
   for (const [id, d] of Object.entries(obj.photos || {})){
+    if (added && !added.photos.has(id)) continue;
     try{ const full = await (await fetch(d)).blob(), img = await blobImage(full), thumb = await jpeg(scaled(img, 360), .75); URL.revokeObjectURL(img.src); await idbPut(id, { full, thumb }); dropCache(id); n++; }catch(e){}
   }
+  if (added){ showToast(`Merged: ${plural(added.s, "new workout")}, ${plural(added.days, "body log day")} and ${plural(n, "photo")} added. Nothing here was changed. Undo it under Settings → Safety snapshots.`); render(); return true; }
   const sm = snapSummary(state), yr = t => new Date(t).getFullYear();
   showToast(`Restored ${plural(sm.n,"workout")}${sm.n ? ` (${yr(sm.from)}${yr(sm.to) !== yr(sm.from) ? `–${yr(sm.to)}` : ""})` : ""}${n ? ` and ${plural(n, "photo")}` : ""}${dropped ? `, skipped ${dropped} damaged` : ""}. Undo it under Settings → Safety snapshots.`); render();
   return true;
@@ -2302,11 +2319,13 @@ function homeTip(){
   if (standalone()) return " This Home Screen app keeps its own data, separate from Safari, and iPhone doesn't clear it the way Safari can.";
   return " To keep it safe, add Iron Log to your Home Screen (Share → Add to Home Screen): Safari can clear data from websites you haven't opened in about a week, but not from Home Screen apps. The Home Screen app starts empty, because it keeps its own data, separate from Safari. So tap Save backup file first, then open the Home Screen app and tap Restore from a file.";
 }
-function pickBackupFile(){
+let pickMerge = false;
+function pickBackupFile(merge){
+  pickMerge = !!merge;
   let f = document.getElementById("restoreFile");
   if (!f){
     f = document.createElement("input"); f.type = "file"; f.id = "restoreFile"; f.accept = ".json,application/json,text/plain"; f.hidden = true; document.body.appendChild(f);
-    f.addEventListener("change", () => { const file = f.files && f.files[0], tab = state.tab; f.value = ""; if (file) file.text().then(t => restoreFrom(t, tab), () => showToast("Couldn't read that file.")); });
+    f.addEventListener("change", () => { const file = f.files && f.files[0], tab = state.tab; f.value = ""; if (file) file.text().then(t => restoreFrom(t, tab, pickMerge), () => showToast("Couldn't read that file.")); });
   }
   f.click();
 }
@@ -2323,6 +2342,8 @@ function settingsView(){
     <p class="hint">${state.lastBackup ? `Last backup ${agoTxt(state.lastBackup)}.` : "No backup saved yet."} The file includes your progress photos${photos().length ? ` (${plural(photos().length, "photo")})` : ""}; copied text doesn't.</p>
     <details id="restorePanel" ${restoreOpen ? "open" : ""}><summary style="cursor:pointer;font-weight:700">Restore from a backup</summary>
       <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px"><button data-act="restoreFile" id="restoreFileBtn">${confirmKey==="restorefile"?"Tap again to replace everything with a backup file":"📁 Restore from a file"}</button>
+      <button data-act="mergeFile" id="mergeFileBtn">🔀 Merge a backup file into this phone</button>
+      <span class="hint">Merge adds workouts, body log days and photos this phone doesn't have (from another device or an older backup) and changes nothing that's already here.</span>
       <span class="hint">Or paste a copied backup:</span><textarea id="restoreBox" placeholder="Paste your backup here" aria-label="Backup text">${esc(restoreText)}</textarea>
       <button data-act="restore" id="restore">${confirmKey==="restore"?"Tap again to replace everything with this backup":"Restore"}</button></div></details>
     ${backupBox!=null?`<textarea id="backupOut" readonly aria-label="Your backup">${esc(backupBox)}</textarea><p class="hint">Couldn't copy automatically. Select all of the text above and copy it into a note or email to yourself.</p>`:""}
@@ -4100,7 +4121,8 @@ document.addEventListener("click", e => {
       catch(err){ showToast("Your browser blocked the download. Use Copy backup instead."); }
       render(); })(); break;
     case "restore": confirmThen("restore", () => restoreFrom(restoreText, "program")); break;
-    case "restoreFile": if (hasData()) confirmThen("restorefile", pickBackupFile); else pickBackupFile(); break;
+    case "restoreFile": if (hasData()) confirmThen("restorefile", () => pickBackupFile(false)); else pickBackupFile(false); break;
+    case "mergeFile": pickBackupFile(true); break;
     case "restorePaste": (async () => {
       let t = ""; try{ t = await navigator.clipboard.readText(); }catch(e){ t = ""; }
       if (t && t.includes('"sessions"')){ await restoreFrom(t, "train"); return; }
