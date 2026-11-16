@@ -1324,11 +1324,11 @@ async function purl(id){ const c = pcache[id] || (pcache[id] = {}); if (c.thumb 
 function dropCache(id){ const c = pcache[id]; if (c && c.thumb) URL.revokeObjectURL(c.thumb); delete pcache[id]; }
 function photosDue(){ const last = photos().length ? Math.max(...photos().map(p => p.at)) : 0; return { last, days:last ? Math.floor((Date.now() - last) / dayMs) : null, due:!last || Date.now() - last >= PHOTO_EVERY * dayMs }; }
 function checkins(){ const g = {}; photos().forEach(p => (g[dkey(p.at)] = g[dkey(p.at)] || []).push(p)); return Object.entries(g).sort((a, b) => b[0].localeCompare(a[0])); }
-async function addPhoto(file, pose){
+async function addPhoto(file, pose, cal){
   try{
     const img = await blobImage(file), full = await jpeg(scaled(img, 1600), .85), thumb = await jpeg(scaled(img, 360), .75);
     URL.revokeObjectURL(img.src);
-    const p = { id:"p" + uid(), at:Date.now(), pose, w:img.naturalWidth, h:img.naturalHeight };
+    const p = { id:"p" + uid(), at:Date.now(), pose, w:img.naturalWidth, h:img.naturalHeight, ...(cal ? { cal } : {}) };
     await idbPut(p.id, { full, thumb });
     photos().push(p); save(); askPersist(); render();
     analyzePhoto(p);
@@ -1350,7 +1350,7 @@ async function analyzePhoto(p){
     p.a = { ok:!!r.ok, reason:r.reason || null, poseGuess:r.poseGuess || null, lm:r.lm || null, torso:r.torso || null, m:r.m || {}, lines:r.lines || {}, flags:r.flags || [], quality:r.quality != null ? r.quality : null, at:Date.now(), v:SCAN_V };
     delete p.err; if (pcache[p.id]) delete pcache[p.id].lined;
   }catch(e){ p.err = navigator.onLine === false ? "offline" : String((e && e.message) || "failed").slice(0, 160); }
-  busy.delete(p.id); save(); softRender();
+  busy.delete(p.id); save(); calibCheck(); softRender();
 }
 // measures photos still waiting, one at a time; ones that already failed are retried only when asked (app start, back online)
 function analyzeWaiting(retry){ if (navigator.onLine === false) return; const p = photos().find(q => (!q.a || (q.a.v || 1) < SCAN_V) && !busy.has(q.id) && (retry || !q.err)); if (p) analyzePhoto(p).then(() => setTimeout(() => analyzeWaiting(false), 300)); }
@@ -1362,25 +1362,42 @@ const METRICS = {
 const LINE_LABEL = { shoulder:"shoulders", waist:"waist", hip:"hips", chest:"chest", belly:"belly" };
 const FLAG_TXT = { "arms-out":"Your arms were held well away from your body, which widens the shoulder reading. Keep them just slightly out.", "arms-touching":"Your arms touched your sides, so the waist wasn't measured. Hold them slightly out next time.", turned:"You look a little turned. Face the camera squarely (or exactly side-on) for a fair comparison.", tilted:"The photo is tilted. Keep the phone upright at chest height.", "low-confidence":"The outline wasn't clear. Use even light and a plain background.", "loose-clothing?":"Loose clothes can hide your shape. Wear the same fitted clothes each time." };
 const REASON_TXT = { "no-person":"No person found in this photo.", "several-people":"More than one person is in the photo, so it wasn't measured.", "cut-off":"Your shoulders and hips need to be in the photo. Step back so you're in frame from head to knees.", unclear:"Couldn't get a clear outline. Stand square to the camera (or exactly side-on), arms slightly out, in even light.", unsupported:"This phone can't run the photo analysis." };
-function prevOf(p){ return photos().filter(q => q.pose === p.pose && q.at < p.at && q.a && q.a.ok).sort((a, b) => b.at - a.at)[0]; }
+// the photo a new one is compared with: the latest earlier one of that pose that measured cleanly (no pose or clothing
+// warnings) and isn't the first of a calibration pair
+function prevOf(p){ return photos().filter(q => q.pose === p.pose && q.at < p.at && q.a && q.a.ok && !(q.a.flags || []).length && q.cal !== 1).sort((a, b) => b.at - a.at)[0]; }
+// Photo noise: two photos taken back to back (step away and back between them) show how much a reading moves with
+// nothing changed. A change smaller than that, and never less than 2%, is treated as noise.
+const pnoise = () => (state.body.pnoise || (state.body.pnoise = {}));
+const photoTh = (pose, k) => Math.max(.02, ((pnoise()[pose] || {})[k] || 0) * 1.5);
+function calibCheck(){
+  const pair = photos().filter(q => q.cal && q.a && !busy.has(q.id)).sort((a, b) => b.at - a.at), a = pair[0];
+  if (!a || a.cal !== 2 || a.calDone) return;
+  const b = pair.find(q => q.cal === 1 && q.pose === a.pose && q.at < a.at); if (!b) return;
+  a.calDone = true;
+  if (!a.a.ok || !b.a.ok || (a.a.flags || []).length || (b.a.flags || []).length){ showToast("One of the calibration photos didn't measure cleanly. Try the pair again."); return; }
+  const out = {}; Object.keys(a.a.m).forEach(k => { const x = a.a.m[k], y = b.a.m[k]; if (x != null && y != null && x + y > 0) out[k] = Math.abs(x - y) / ((x + y) / 2); });
+  pnoise()[a.pose] = { ...out, at:Date.now() }; save();
+  const worst = Math.max(...Object.values(out)); showToast(`Calibrated: your ${POSES[a.pose].toLowerCase()} photos vary by up to ${(worst * 100).toFixed(1)}% with nothing changed. Smaller changes now count as noise.`);
+}
 function metricRows(p){
   const a = p.a, q = prevOf(p); if (!a || !a.ok) return "";
   return `<div class="metric">${(METRICS[p.pose] || []).filter(([k]) => a.m[k] != null).map(([k, l, good]) => { const v = a.m[k], o = q && q.a.m[k] != null ? q.a.m[k] : null, c = o ? (v - o) / o : null;
-    return `<span>${l}</span><b>${v.toFixed(2)}</b><span class="tg ${c == null || Math.abs(c) < .02 || !good ? "" : (c > 0) === (good > 0) ? "up" : "down"}">${c == null ? "first" : pct(c)}</span>`; }).join("")}</div>`;
+    return `<span>${l}</span><b>${v.toFixed(2)}</b><span class="tg ${c == null || Math.abs(c) < photoTh(p.pose, k) || !good ? "" : (c > 0) === (good > 0) ? "up" : "down"}">${c == null ? "first" : pct(c)}</span>`; }).join("")}</div>`;
 }
 function photoSummary(p){
   const a = p.a; if (!a) return "";
   if (!a.ok) return REASON_TXT[a.reason] || "This photo couldn't be measured.";
   const q = prevOf(p); if (!q) return "First measured photo of this pose. The next one is compared to it.";
-  const ch = k => a.m[k] != null && q.a.m[k] != null ? (a.m[k] - q.a.m[k]) / q.a.m[k] : null, out = [], since = new Date(q.at).toLocaleDateString(undefined,{month:"short",day:"numeric"});
+  const ch = k => a.m[k] != null && q.a.m[k] != null ? (a.m[k] - q.a.m[k]) / q.a.m[k] : null, out = [], since = new Date(q.at).toLocaleDateString(undefined,{month:"short",day:"numeric"}), T = k => photoTh(p.pose, k);
   if (p.pose === "side"){ const b = ch("belly"), c = ch("chest");
-    if (b != null && b <= -.02) out.push(`belly depth down ${pct(b).slice(1)}`); if (b != null && b >= .03) out.push(`belly depth up ${pct(b).slice(1)}`); if (c != null && c >= .02) out.push(`chest depth up ${pct(c).slice(1)}`);
+    if (b != null && b <= -T("belly")) out.push(`belly depth down ${pct(b).slice(1)}`); if (b != null && b >= T("belly") + .01) out.push(`belly depth up ${pct(b).slice(1)}`); if (c != null && c >= T("chest")) out.push(`chest depth up ${pct(c).slice(1)}`);
   } else { const t = ch("taper"), w = ch("waist"), s = ch("shoulder");
-    if (t != null && t >= .02) out.push(`${p.pose === "back" ? "back-to-waist" : "shoulder-to-waist"} ratio up ${pct(t).slice(1)}`);
-    if (w != null && w <= -.02) out.push(`waist ${pct(w).slice(1)} narrower`); if (w != null && w >= .03) out.push(`waist ${pct(w).slice(1)} wider`);
-    if (s != null && s >= .02) out.push(`${p.pose === "back" ? "upper back" : "shoulders"} ${pct(s).slice(1)} broader`);
+    if (t != null && t >= T("taper")) out.push(`${p.pose === "back" ? "back-to-waist" : "shoulder-to-waist"} ratio up ${pct(t).slice(1)}`);
+    if (w != null && w <= -T("waist")) out.push(`waist ${pct(w).slice(1)} narrower`); if (w != null && w >= T("waist") + .01) out.push(`waist ${pct(w).slice(1)} wider`);
+    if (s != null && s >= T("shoulder")) out.push(`${p.pose === "back" ? "upper back" : "shoulders"} ${pct(s).slice(1)} broader`);
   }
-  return out.length ? `Since ${since}: ${out.slice(0, 2).join(", ")}.` : `About the same as ${since}. Changes under 2% are within a photo's noise.`;
+  const nz = Math.max(...(METRICS[p.pose] || []).map(([k]) => T(k)));
+  return out.length ? `Since ${since}: ${out.slice(0, 2).join(", ")}.` : `About the same as ${since}. Changes under ${Math.round(nz * 100)}% are within ${pnoise()[p.pose] ? "your measured" : "a photo's"} noise.`;
 }
 function photoNotes(p){ const a = p.a; return a && a.ok ? (a.flags || []).map(f => `<p class="why">⚠️ ${esc(FLAG_TXT[f] || f.replace(/-/g, " "))}</p>`).join("") : ""; }
 function photoStatus(p){
@@ -1472,6 +1489,13 @@ function bodyView(){
     <p class="hint">Each weigh-in counts on the day it's dated, so gaps don't skew your averages or trend.</p></div>` : "";
   return todayCard + trend + history + photosPanel();
 }
+// one-time check of how much your photos vary with nothing changed: two front photos, stepping away and back between them
+function calibBox(){
+  const n = pnoise().front, c1 = photos().filter(q => q.cal === 1 && q.pose === "front").sort((a, b) => b.at - a.at)[0], waiting = c1 && !photos().some(q => q.cal === 2 && q.at > c1.at);
+  return `<details class="why" id="calibPanel"><summary>📏 ${n ? `Photo noise: up to ${(Math.max(...Object.entries(n).filter(([k]) => k !== "at").map(([, v]) => v)) * 100).toFixed(1)}% (measured ${agoTxt(n.at)})` : "Calibrate: how much do your photos vary?"}</summary>
+    <p class="hint" style="font-size:12.5px;margin:0">Take two front photos back to back: take one, step out of frame, come back to your spot and take the second. Nothing changed between them, so the difference is your setup's noise. Changes smaller than that (never under 2%) won't be called progress.</p>
+    <div class="pslot" style="max-width:none"><label for="cal-${waiting ? 2 : 1}">＋ Calibration photo ${waiting ? "2 of 2" : "1 of 2"}</label><input type="file" accept="image/*" id="cal-${waiting ? 2 : 1}" data-photo="front" data-cal="${waiting ? 2 : 1}"></div></details>`;
+}
 function photosPanel(){
   const pd = photosDue(), list = checkins(), today = dkey(Date.now()), todays = photos().filter(p => dkey(p.at) === today);
   const showShoot = shoot || pd.due || todays.length;
@@ -1479,7 +1503,7 @@ function photosPanel(){
       return p ? `<div class="pslot"><img class="pth" data-pid="${p.id}" alt="${l} photo" ${pcache[p.id] && pcache[p.id].thumb ? `src="${pcache[p.id].thumb}"` : ""} data-act="phView" data-id="${p.id}"><span>${l} ✓</span></div>`
         : `<div class="pslot"><label for="ph-${pose}">＋ ${l}</label><input type="file" accept="image/*" id="ph-${pose}" data-photo="${pose}"><span>${l}</span></div>`; }).join("")}</div>`;
   const shootBox = showShoot ? `<ul class="playbook" style="margin:0;padding-left:20px"><li>Same spot, same light and same time (morning) every time. Even light from the front.</li><li>Phone upright at chest height, about 2 m (6 ft) away, on a timer. Whole body head to knees in frame.</li><li>Fitted clothes or swimwear, relaxed, arms slightly away from your sides.</li></ul>
-    ${slots}<p class="hint">Photos stay on this phone, and so does the analysis. Nothing is uploaded.</p>` : `<button data-act="phShoot" id="phShoot">📸 Take this month's photos</button>`;
+    ${slots}<p class="hint">Photos stay on this phone, and so does the analysis. Nothing is uploaded.</p>${calibBox()}` : `<button data-act="phShoot" id="phShoot">📸 Take this month's photos</button>`;
   const latestSet = list.length ? list[0][1] : [];
   const results = latestSet.length ? `<div style="display:flex;flex-direction:column;gap:14px">${latestSet.map(p => `<div class="rvx"><div class="row"><b class="grow">${POSES[p.pose]} · ${new Date(p.at).toLocaleDateString(undefined,{month:"short",day:"numeric"})}</b><button class="small ghost" data-act="phView" data-id="${p.id}" id="phv-${p.id}">View</button></div>
       ${photoStatus(p)}${metricRows(p)}${photoNotes(p)}</div>`).join("")}
@@ -4231,7 +4255,7 @@ function rerenderList(){
 }
 document.addEventListener("change", e => {
   const t = e.target;
-  if (t.dataset && t.dataset.photo && t.files && t.files[0]){ const f = t.files[0]; t.value = ""; addPhoto(f, t.dataset.photo); return; }
+  if (t.dataset && t.dataset.photo && t.files && t.files[0]){ const f = t.files[0]; t.value = ""; addPhoto(f, t.dataset.photo, t.dataset.cal ? +t.dataset.cal : 0); return; }
   if (t.id === "cmpA" || t.id === "cmpB"){ cmp[t.id === "cmpA" ? "a" : "b"] = t.value; render(); return; }
   if (e.target.id === "pe" && picker){ picker.e = e.target.value; render(); }
   if (e.target.id === "progressEx"){ progressEx = e.target.value; render(); }

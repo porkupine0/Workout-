@@ -171,6 +171,14 @@ const ok = (cond, name, detail) => { if (cond){ passes++; } else { fails++; cons
     const r = { ok1, ids:state.sessions.map(x => x.id).join(''), day1:state.body.log['2026-01-01'], day2:state.body.log['2026-01-02'], days:state.days.map(d => d.id).join(), cardio:state.cardio.log.length };
     const ok2 = await restoreFrom(JSON.stringify({ ...bk, units:'kg', sessions:[S('z', 1.3e12)] }), 'program', true); r.ok2 = ok2; r.after = state.sessions.length; return r; });
   ok(mg.ok1 && mg.ids === 'acb' && mg.day1.w === 180 && mg.day1.waist === 33 && mg.day2.w === 179 && mg.days === 'keep' && mg.cardio === 1 && mg.ok2 === false && mg.after === 3, 'merge restore adds, keeps, refuses unit mismatch', JSON.stringify(mg));
+  // photo calibration: a back-to-back pair sets the noise threshold (never under 2%); flagged photos aren't a comparison base
+  const pc = await p.evaluate(() => { state.body.photos = []; state.body.pnoise = {}; const m = (taper, waist, shoulder, hip) => ({ ok:true, m:{ taper, waist, shoulder, hip }, flags:[] });
+    const P = (id, at, a, extra) => ({ id, at, pose:'front', a, ...(extra || {}) });
+    const base = P('p1', 1000, m(1.50, .80, 1.20, .90)), flagged = P('p2', 2000, { ...m(1.40, .90, 1.20, .90), flags:['turned'] }), now = P('p3', 3000, m(1.535, .79, 1.21, .90));
+    state.body.photos.push(base, flagged, now); const before = photoSummary(now), prev = prevOf(now).id;
+    state.body.photos.push(P('c1', 4000, m(1.50, .80, 1.20, .90), { cal:1 }), P('c2', 4100, m(1.53, .80, 1.20, .90), { cal:2 })); calibCheck();
+    const th = photoTh('front', 'taper'), floor = photoTh('front', 'hip'), after = photoSummary(now); state.body.photos = []; return { prev, before, th:+th.toFixed(3), floor, after }; });
+  ok(pc.prev === 'p1' && /ratio up/.test(pc.before) && pc.th > .029 && pc.floor === .02 && !/ratio up/.test(pc.after), 'photo calibration raises the noise threshold; flagged photos skipped', JSON.stringify(pc));
   ok(errs.length === 0, 'no page errors', errs.join('\n'));
   // damaged saved data: rescue screen, and the stored data is not overwritten
   for (const [name, raw] of [['unreadable', '{"v":1,"units":"lb","days":[],"sessions":[{"id":"a"'], ['wrong-typed', JSON.stringify({ v:1, units:'lb', days:[], sessions:[{ id:'s', dayId:'d', start:1, end:2, items:[] }], body:'oops', goals:5 })]]){
