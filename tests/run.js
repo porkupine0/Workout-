@@ -133,14 +133,22 @@ const ok = (cond, name, detail) => { if (cond){ passes++; } else { fails++; cons
     const r = await restoreFrom(JSON.stringify({ days:[], sessions:[], body:'oops', goals:7, cardio:{ log:'x' } }), 'program');
     let drew = true; try{ drawPage(); }catch(e){ drew = false; } return { r, drew, body:typeof state.body, rescue:!!document.getElementById('rzSave') }; });
   ok(badRestore.drew && badRestore.body === 'object' && !badRestore.rescue, 'bad-typed backup is cleaned or refused', JSON.stringify(badRestore));
+  // swapping the second exercise of a superset after a round keeps the pair together; removing a done set asks first
+  const ssw = await p.evaluate(() => { const F = n => lib().find(e => e.n === n).id; state.days = [{ id:'dS', name:'Arms', items:[{ ex:F('Dumbbell Curl'), sets:3, lo:8, hi:12, rest:90, ss:true }, { ex:F('Rope Pushdown'), sets:3, lo:8, hi:12, rest:90 }] }];
+    startSession(state.days[0], null); const a = state.active; a.items[0].sets[0].r = '10'; a.items[0].sets[0].done = true; a.items[1].sets[0].r = '10'; a.items[1].sets[0].done = true;
+    swap = { x:1 }; applySwap(F('Overhead Cable Extension'), false); const order = a.items.map(it => exById(it.ex).n + (it.ss ? '+' : ''));
+    a.items[0].sets.push({ w:'', r:'8', done:true }); const n0 = a.items[0].sets.length; const btn = () => document.querySelector('[data-act="rmSet"][data-x="0"]'); state.tab = 'train'; render(); btn().click(); const n1 = a.items[0].sets.length; btn().click(); const n2 = a.items[0].sets.length;
+    state.active = null; return { order:order.join(' | '), n0, n1, n2 }; });
+  ok(ssw.order === 'Rope Pushdown | Dumbbell Curl+ | Overhead Cable Extension' && ssw.n1 === ssw.n0 && ssw.n2 === ssw.n0 - 1, 'superset swap keeps the pair; removing a done set asks first', JSON.stringify(ssw));
   ok(errs.length === 0, 'no page errors', errs.join('\n'));
   // damaged saved data: rescue screen, and the stored data is not overwritten
   for (const [name, raw] of [['unreadable', '{"v":1,"units":"lb","days":[],"sessions":[{"id":"a"'], ['wrong-typed', JSON.stringify({ v:1, units:'lb', days:[], sessions:[{ id:'s', dayId:'d', start:1, end:2, items:[] }], body:'oops', goals:5 })]]){
     const qc = await b.newContext(), q = await qc.newPage(); const qe = []; q.on('pageerror', e => qe.push(e.message));
     await q.addInitScript(r => { if (!sessionStorage.getItem('seeded')){ sessionStorage.setItem('seeded', '1'); localStorage.setItem('iron-log-v1', r); } }, raw);
     await q.goto('file://' + path.resolve(__dirname, '../index.html')); await q.waitForTimeout(800);
-    const res = await q.evaluate(() => ({ rescue:!!document.getElementById('rzSave'), kept:localStorage.getItem('iron-log-v1') }));
-    ok(res.rescue && res.kept === raw, `${name} save opens rescue and is kept`, JSON.stringify({ rescue:res.rescue, same:res.kept === raw, qe }));
+    const res = await q.evaluate(() => ({ rescue:!!document.getElementById('rzSave'), kept:localStorage.getItem('iron-log-v1'), n:typeof state !== 'undefined' ? state.sessions.length : -1, tabs:['train','body','program','history','progress'].every(t => { state.tab = t; render(); return !document.getElementById('rzSave'); }) }));
+    if (name === 'unreadable') ok(res.rescue && res.kept === raw, `${name} save opens rescue and is kept`, JSON.stringify({ rescue:res.rescue, same:res.kept === raw, qe }));
+    else ok(!res.rescue && res.n === 1 && res.tabs && !qe.length, `${name} save is repaired and every tab opens`, JSON.stringify({ res, qe }));
     await qc.close(); }
   console.log(`${passes} passed, ${fails} failed`); await b.close(); process.exit(fails ? 1 : 0);
 })();

@@ -719,21 +719,26 @@ function migrate(){
   cleanState(state);
   if (!state.notes) state.notes = {};
   if (!state.swapMode) state.swapMode = "ask";
-  if (!state.goals) state.goals = { goal:"muscle", exp:"mid", priority:[], where:"full", minutes:60, avoid:[], set:false };
+  if (!state.goals || typeof state.goals !== "object") state.goals = { goal:"muscle", exp:"mid", priority:[], where:"full", minutes:60, avoid:[], set:false };
   if (!Array.isArray(state.blocks)) state.blocks = [];
-  if (!state.body) state.body = { log:{}, photos:[] };
+  if (!state.body || typeof state.body !== "object") state.body = { log:{}, photos:[] };
+  if (!state.body.log || typeof state.body.log !== "object" || Array.isArray(state.body.log)) state.body.log = {};
+  if (!Array.isArray(state.body.photos)) state.body.photos = [];
+  if (!Array.isArray(state.custom)) state.custom = [];
   if (state.askReady == null) state.askReady = true;
   if (!state.bar) state.bar = state.units === "kg" ? 20 : 45;
-  if (!state.cardio) state.cardio = { log:[] };
+  if (!state.cardio || typeof state.cardio !== "object") state.cardio = { log:[] };
+  if (!Array.isArray(state.cardio.log)) state.cardio.log = [];
   if (state.goals.cardio == null) state.goals.cardio = 150;
   { const g = state.goals; if (g.minutes === 75) g.minutes = 70; if (g.minutes === 90) g.minutes = 85; if (!MIN_OPTS[g.minutes]) g.minutes = 60;
     if (!g.split) g.split = "keep"; if (!g.ssPref) g.ssPref = "time"; if (!Array.isArray(g.looks)) g.looks = [];
     ["strength","aches","love","notes","height","sex","targetDate","targetWhat"].forEach(k => { if (typeof g[k] !== "string") g[k] = ""; });
-    if (!Array.isArray(g.noGear)) g.noGear = []; if (!g.week || typeof g.week !== "object") g.week = null; }
+    if (!Array.isArray(g.noGear)) g.noGear = []; if (!Array.isArray(g.avoid)) g.avoid = []; if (!Array.isArray(g.priority)) g.priority = []; if (!g.week || typeof g.week !== "object") g.week = null; }
   if (!state.rate) state.rate = {};
   if (!state.uni) state.uni = {};
   if (!state.base) state.base = {};
   if (!Array.isArray(state.saved)) state.saved = [];
+  state.saved = state.saved.filter(t => t && typeof t === "object" && Array.isArray(t.items));
   if (!state.aiPlan) state.aiPlan = { depth:"standard", research:false };
   if (!state.block){
     const ids = new Set(state.days.map(d => d.id)), first = state.sessions.find(s => ids.has(s.dayId));
@@ -797,7 +802,7 @@ async function takeSnap(why){
     snapList = null; }catch(e){}
 }
 async function listSnaps(){ try{ const keys = await snapDo("readonly", st => st.getAllKeys()), vals = await snapDo("readonly", st => st.getAll());
-  snapList = keys.map((k, i) => ({ key:k, at:vals[i].at, n:vals[i].n, why:vals[i].why })).sort((a, b) => b.at - a.at); }catch(e){ snapList = []; } render(); }
+  snapList = keys.map((k, i) => ({ key:k, at:vals[i].at, n:vals[i].n, why:vals[i].why })).sort((a, b) => b.at - a.at); }catch(e){ snapList = []; } softRender(); }
 async function restoreSnap(key){ try{ const v = await snapDo("readonly", st => st.get(key)); if (!v) return; await takeSnap("before-restore");
   state = { ...fresh(), ...JSON.parse(v.data), timer:null, tab:"program" }; migrate(); saveNow(); snapList = null; showToast(`Back to your data from ${new Date(v.at).toLocaleDateString()} (${plural(v.n, "workout")}).`); render(); }catch(e){ showToast("Couldn't open that snapshot."); render(); } }
 function dailySnap(){ try{ if (localStorage.getItem("iron-log-snap-day") === dkey(Date.now()) || !(state.sessions.length || state.days.length)) return;
@@ -1320,7 +1325,7 @@ const busy = new Set();
 let scanMod = null;
 function scanner(){ return scanMod || (scanMod = import("./body-scan.js").then(async m => { await m.ready(); return m; }).catch(e => { scanMod = null; throw e; })); }
 async function analyzePhoto(p){
-  if (busy.has(p.id)) return; busy.add(p.id); render();
+  if (busy.has(p.id)) return; busy.add(p.id); softRender();
   try{
     const [m, rec] = await Promise.all([scanner(), idbGet(p.id)]);
     const img = await blobImage(rec.full), r = await m.analyze(img, p.pose);
@@ -1328,7 +1333,7 @@ async function analyzePhoto(p){
     p.a = { ok:!!r.ok, reason:r.reason || null, poseGuess:r.poseGuess || null, lm:r.lm || null, torso:r.torso || null, m:r.m || {}, lines:r.lines || {}, flags:r.flags || [], quality:r.quality != null ? r.quality : null, at:Date.now(), v:SCAN_V };
     delete p.err; if (pcache[p.id]) delete pcache[p.id].lined;
   }catch(e){ p.err = navigator.onLine === false ? "offline" : String((e && e.message) || "failed").slice(0, 160); }
-  busy.delete(p.id); save(); render();
+  busy.delete(p.id); save(); softRender();
 }
 // measures photos still waiting, one at a time; ones that already failed are retried only when asked (app start, back online)
 function analyzeWaiting(retry){ if (navigator.onLine === false) return; const p = photos().find(q => (!q.a || (q.a.v || 1) < SCAN_V) && !busy.has(q.id) && (retry || !q.err)); if (p) analyzePhoto(p).then(() => setTimeout(() => analyzeWaiting(false), 300)); }
@@ -1751,7 +1756,7 @@ async function restoreFrom(text, tab){
   if (data.body){ if (!data.body.log || typeof data.body.log !== "object" || Array.isArray(data.body.log)) data.body.log = {}; if (!Array.isArray(data.body.photos)) data.body.photos = []; }
   const old = state;
   state = { ...fresh(), ...data, timer:null, tab:tab || "program" };
-  try{ migrate(); drawPage(); }catch(e){ state = old; showToast("That backup has data the app can't use, so nothing was changed."); render(); return false; }
+  try{ migrate(); for (const t of ["train","body","program","history","progress"]){ state.tab = t; drawPage(); } state.tab = tab || "program"; }catch(e){ state = old; showToast("That backup has data the app can't use, so nothing was changed."); render(); return false; }
   review = null; restoreText = ""; restoreOpen = false; save();
   let n = 0;
   for (const [id, d] of Object.entries(obj.photos || {})){
@@ -2434,7 +2439,10 @@ function applySwap(newId, permanent){
   const a = state.active, it = a.items[swap.x], oldId = it.ex;
   const tpl = { ex:newId, sets:it.targetSets || it.sets.length, lo:it.lo, hi:it.hi, rest:it.rest, ss:it.ss };
   const fresh = buildSessionItem(tpl, null, true);
-  if (it.sets.some(s => s.done)){ it.sets = it.sets.filter(s => s.done); it.ss = false; fresh.sets = fresh.sets.slice(0, Math.max(1, (it.targetSets||3) - it.sets.length)); fresh.target.reps = fresh.target.reps.slice(0, fresh.sets.length); fresh.targetSets = fresh.sets.length; a.items.splice(swap.x + 1, 0, fresh); }
+  if (it.sets.some(s => s.done)){ it.sets = it.sets.filter(s => s.done); it.ss = false; fresh.sets = fresh.sets.slice(0, Math.max(1, (it.targetSets||3) - it.sets.length)); fresh.target.reps = fresh.target.reps.slice(0, fresh.sets.length); fresh.targetSets = fresh.sets.length;
+    // second half of a superset: the finished sets move just above the pair, so the pair carries on with the new exercise
+    if (swap.x > 0 && a.items[swap.x - 1].ss){ a.items.splice(swap.x, 1, fresh); a.items.splice(swap.x - 1, 0, it); }
+    else a.items.splice(swap.x + 1, 0, fresh); }
   else a.items[swap.x] = fresh;
   if (permanent && a.dayId){ const day = state.days.find(d => d.id === a.dayId); if (day){ const pi = day.items.findIndex(q => q.ex === oldId); if (pi >= 0) day.items[pi] = { ...day.items[pi], ex:newId }; } }
   showToast(`Swapped to ${exById(newId).n}${permanent?" and updated your program":" for today"}.`);
@@ -3362,7 +3370,7 @@ async function planRounds(r, ai, first, base, rounds, extra){
   let plan = await first, chk = checkPlan(plan);
   for (let k = 1; k <= rounds && (chk.hard.length || (k === 1 && chk.soft.length)); k++){
     if (review !== r || r.ai !== ai) return null;
-    ai.stage = `The app's check found ${plural(chk.hard.length + (k === 1 ? chk.soft.length : 0), "thing")} to fix. Claude is revising (round ${k} of ${rounds})…`; render();
+    ai.stage = `The app's check found ${plural(chk.hard.length + (k === 1 ? chk.soft.length : 0), "thing")} to fix. Claude is revising (round ${k} of ${rounds})…`; softRender();
     const p2 = await blockCall(fixText(base, plan, k === 1 ? chk : { hard:chk.hard, soft:[] }, extra)), c2 = checkPlan(p2);
     if (c2.hard.length <= chk.hard.length){ plan = p2; chk = c2; }
   }
@@ -3390,7 +3398,7 @@ const ANGLES = ["Conservative: keep what's working and change only what the resu
 async function aiBlockGo(){
   const r = review; if (!r || (r.ai && r.ai.busy)) return;
   const pref = state.aiPlan, ai = r.ai = { busy:true, err:"", plan:null, use:false, stage:"", ask:"" }, live = () => review === r && r.ai === ai;
-  const stage = t => { ai.stage = t; if (live()) render(); };
+  const stage = t => { ai.stage = t; if (live()) softRender(); };
   try{
     let base = blockContent();
     if (pref.research){
@@ -3811,6 +3819,8 @@ function finishSession(){
 document.addEventListener("pointerdown", unlockAudio, { passive:true });
 document.addEventListener("click", e => {
   const b = e.target.closest("[data-act]"); if (!b) return;
+  // a tap on a button lets go of the set box you were typing in, so redrawing the page can't swap it under the keyboard
+  { const fe = document.activeElement; if (fe && fe !== b && fe.dataset && fe.dataset.f != null && !b.matches("input,textarea,select")) fe.blur(); }
   const act = b.dataset.act, d = b.dataset.d != null ? +b.dataset.d : null, x = b.dataset.x != null ? +b.dataset.x : null;
   switch(act){
     case "tab": state.tab = b.dataset.v; summary = null; save(); render(); window.scrollTo(0,0); break;
@@ -3916,7 +3926,8 @@ document.addEventListener("click", e => {
     case "ssFixApply": { if (ssFix && ssFix.res && ssFix.res.items){ state.days[ssFix.d].items = ssFix.res.items; showToast("Pairs updated. Your next workout uses them."); } ssFix = null; save(); render(); break; }
     case "swapMode": state.swapMode = b.dataset.v; save(); render(); break;
     case "addSet": { const it = state.active.items[x], l = it.sets[it.sets.length-1]; it.sets.push({ w:l?l.w:"", r:l?l.r:"", done:false }); save(); render(); break; }
-    case "rmSet": { const it = state.active.items[x]; if (it.sets.length > 1) it.sets.pop(); save(); render(); break; }
+    case "rmSet": { const it = state.active.items[x], drop = () => { if (it.sets.length > 1) it.sets.pop(); save(); render(); };
+      if (it.sets.length > 1 && it.sets[it.sets.length - 1].done) confirmThen("rmset" + x, drop); else drop(); break; }
     case "restTap": { const it = state.active.items[x]; startTimer(it.rest, exById(it.ex).n); save(); render(); break; }
     case "sxUp": { const a = state.active.items; if (x > 0){ [a[x-1], a[x]] = [a[x], a[x-1]]; save(); render(); } break; }
     case "sxRm": confirmThen("sxrm"+x, ()=>{ state.active.items.splice(x,1); save(); render(); }); break;
