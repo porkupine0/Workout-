@@ -2066,8 +2066,8 @@ function targetLine(it, ex){
 }
 // ---------- Muscle and exercise feedback ----------
 // After a workout, a few optional taps: for each muscle, was it still sore coming in; for each exercise, how well
-// it worked the muscle and how your joints felt. Muscles: still sore → one set fewer next time; not sore, a weak
-// pump and no progress → one set more (two exercises if it keeps asking). The planned build-week sets and volume
+// it worked the muscle and how your joints felt. Muscles: still sore → one set fewer next time; recovered two
+// sessions running and no progress → one set more (two exercises if it keeps asking); a weak pump alone adds nothing. The planned build-week sets and volume
 // caps still apply. Exercises: the stimulus-vs-joints rating steers swaps and the next block's picks, and "Hurt"
 // counts as a pain flag.
 const FB_SORE = ["No", "A bit", "Still sore"], FB_STIM = ["Barely", "Good", "Great"], FB_JOINT = ["Fine", "Achy", "Hurt"];
@@ -2106,7 +2106,10 @@ function muscleCall(m){
   const ex = its.map(it => { const H = exposures(it.ex).filter(h => !h.light), k = H.findIndex(h => h.sid === L.id); return k > 0 ? { up:H[k].improved, down:H[k].score < H[k-1].score * .97 } : null; }).filter(Boolean);
   const up = ex.some(e => e.up), down = ex.length && ex.filter(e => e.down).length >= ex.length / 2;
   if (sore === 2 || (down && sore >= 1)) return { call:"less", why:sore === 2 ? "still sore when you started last time" : "sore and slipping" };
-  if (sore === 0 && !down && (pump === 0 || !up)) return { call:"more", why:pump === 0 ? "recovered, and the pump was weak last time" : "recovered, and no progress last time", streak:S.length >= 2 && S[S.length-2].fb.m[m].sore === 0 && muscleWas(S[S.length-2], m, "more") };
+  // Adding is slower than removing: soreness and pump are weak signals of growth (Schoenfeld & Contreras 2013), so a set
+  // is added only when two sessions in a row say "recovered" and the lift isn't moving. A weak pump alone never adds one.
+  const P = S[S.length - 2], agree = !!P && P.fb.m[m].sore === 0;
+  if (sore === 0 && !down && !up && agree) return { call:"more", why:`recovered two sessions running, and no progress last time${pump === 0 ? " (weak pump too)" : ""}`, streak:S.length >= 3 && S[S.length-3].fb.m[m].sore === 0 && muscleWas(P, m, "more") };
   return { call:"hold", why:"" };
 }
 const muscleWas = (sess, m, call) => sess.items.some(it => exById(it.ex).m === m && it.fbAdj === (call === "more" ? 1 : -1));
