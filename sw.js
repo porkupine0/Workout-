@@ -44,6 +44,7 @@ self.addEventListener("fetch", e => {
   if (req.mode === "navigate"){ e.respondWith(page(req)); return; }
   if (url.origin === location.origin){
     if (url.pathname.includes("/vision/")) e.respondWith(keep(req));
+    else if (url.pathname.endsWith("/body-scan.js")) e.respondWith(fetch(req).then(res => { if (res.ok){ const c = res.clone(); caches.open(SHELL).then(x => x.put(req, c)); } return res; }).catch(() => caches.match(req)));   // newest first, so it matches the page's version
     else if (url.pathname.startsWith(new URL("./", location).pathname)) e.respondWith(fresh(req, SHELL));
     return;
   }

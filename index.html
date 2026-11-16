@@ -302,6 +302,7 @@ input[type=date]{font:inherit;width:100%;max-width:220px;min-height:44px;padding
 
 <div class="wrap" id="app"></div>
 <div id="dock" hidden></div>
+<div id="sr" aria-live="polite" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap"></div>
 
 <script>
 const KEY = "iron-log-v1";
@@ -836,7 +837,9 @@ function confirmThen(key, fn){
 }
 // a toast without redrawing the page, so what's typed in a box stays there
 function noteToast(msg){ showToast(msg); const old = document.querySelector(".toast"); if (old) old.remove(); document.getElementById("app").insertAdjacentHTML("beforeend", `<div class="toast" role="status">${esc(msg)}</div>`); }
-function showToast(msg){ toast = msg; clearTimeout(toastT); toastT = setTimeout(()=>{ toast = null; const el = document.querySelector(".toast"); if (el) el.remove(); }, 2600); }
+// VoiceOver hears toasts and the end of a rest through one live region that stays on the page between redraws
+function say(msg){ const el = document.getElementById("sr"); if (!el) return; el.textContent = ""; setTimeout(() => { el.textContent = String(msg).replace(/<[^>]*>/g, ""); }, 50); }
+function showToast(msg){ say(msg); toast = msg; clearTimeout(toastT); toastT = setTimeout(()=>{ toast = null; const el = document.querySelector(".toast"); if (el) el.remove(); }, 2600); }
 
 // ---------- history helpers ----------
 function lastPerf(exId){
@@ -1328,6 +1331,7 @@ async function addPhoto(file, pose){
 // the analysis runs on the phone (body-scan.js and its pose model, kept for offline use); nothing is uploaded
 // bump when body-scan.js measures differently: photos measured by an older version are measured again on this phone
 const SCAN_V = 2;
+const APP_VER = "2026.11.16";   // shown in Settings: bump with each release so you can tell which version the phone has
 const busy = new Set();
 let scanMod = null;
 function scanner(){ return scanMod || (scanMod = import("./body-scan.js").then(async m => { await m.ready(); return m; }).catch(e => { scanMod = null; throw e; })); }
@@ -1800,7 +1804,7 @@ setInterval(() => {
   const tm = state.timer, a = state.active, b = document.getElementById("tmrBig");
   if (tm){
     const left = (tm.end - Date.now())/1000;
-    if (left <= 0 && !tm.rang){ tm.rang = true; tm.overAt = Date.now(); save(); beep(); renderDock(); return; }
+    if (left <= 0 && !tm.rang){ tm.rang = true; tm.overAt = Date.now(); save(); beep(); say("Rest over. Next set."); renderDock(); return; }
     if (tm.rang && Date.now() - tm.overAt > 8000){ state.timer = null; save(); renderDock(); return; }
     if (b) b.textContent = left > 0 ? fmtTime(left) : "GO";
     const bar = document.getElementById("tmrBar"); if (bar) bar.style.width = `${Math.max(0, Math.min(100, (1 - left/tm.total) * 100))}%`;
@@ -1915,6 +1919,7 @@ function trainView(){
   if (review) return reviewView();
   if (!state.days.length){
     return (calOffer ? calOfferView() : "") + moveInCard() + `<div class="panel"><h2>Let's build your program</h2><p class="hint">Set up 3 to 5 workout days. Start from a template, or build your own from about 290 exercises.</p>
+      <p class="hint" style="font-size:12.5px">Iron Log gives general training and nutrition guidance, not medical advice. Check with a doctor before starting if you have a health condition or injury, and stop any exercise that causes sharp pain.</p>
       <button class="primary" data-act="tab" data-v="program" id="goProgram">Set up my workout days</button></div>` + quickStart();
   }
   const nx = upNextIdx();
@@ -2006,7 +2011,7 @@ function sessionView(){
     return `<div class="panel exc ${inSS?"ss":""} ${it.ss?"ss-a":""} ${ssPrev?"ss-b":""}">
       ${inSS?`<span class="sslabel">${it.ss?"Superset · then":"Superset · after"} ${esc(exById((it.ss?a.items[xi+1]:a.items[xi-1]).ex).n)}</span>`:""}${ssPrev && ssWarnText(exById(a.items[xi-1].ex), ex) ? `<span class="hint" style="font-size:12.5px">⚠️ Starts tired from ${esc(exById(a.items[xi-1].ex).n)}. Compare its numbers to other superset days, not your fresh best.</span>` : ""}
       <div class="exhead"><div class="grow"><div class="en">${esc(ex.n)}</div><div class="em">${esc(ex.m)} · ${EQ[ex.e]||""} · ${it.targetSets?`${it.targetSets} × ${isT?`${it.lo}-${it.hi}s`:`${it.lo}-${it.hi}`}`:"no target"} · rest ${fmtTime(it.rest)}</div></div>
-        <div class="iconbtns"><button id="swap-${xi}" data-act="swap" data-x="${xi}" aria-label="Swap exercise">⇄ Swap</button><button id="up-${xi}" data-act="sxUp" data-x="${xi}" aria-label="Move up" ${xi===0?"disabled":""}>↑</button><button id="rm-${xi}" data-act="sxRm" data-x="${xi}" aria-label="Remove exercise">${confirmKey==="sxrm"+xi?"Remove?":"✕"}</button></div></div>
+        <div class="iconbtns"><button id="swap-${xi}" data-act="swap" data-x="${xi}" aria-label="Swap ${esc(ex.n)}">⇄ Swap</button><button id="up-${xi}" data-act="sxUp" data-x="${xi}" aria-label="Move ${esc(ex.n)} up" ${xi===0?"disabled":""}>↑</button><button id="rm-${xi}" data-act="sxRm" data-x="${xi}" aria-label="Remove ${esc(ex.n)}">${confirmKey==="sxrm"+xi?"Remove?":"✕"}</button></div></div>
       ${note ? `<div class="notepre">📝 ${esc(note)}</div>` : ""}
       ${it.coachNote ? `<div class="notepre">🤖 ${esc(it.coachNote)}</div>` : ""}
       ${last ? `<div class="prev num">Last time (${agoTxt(last.at)}): ${last.sets.map(s=>fmtSet(s, ex.t)).join(", ")}${last.first ? ` · started ${SIDE[last.first].toLowerCase()}` : ""}</div>` : `<div class="prev">First time logging this one.</div>`}
@@ -2032,6 +2037,7 @@ function sessionView(){
         <input type="text" inputmode="decimal" id="step-${xi}" data-stepx="${esc(it.ex)}" value="${ownStep(ex) || ""}" placeholder="Default ${stepFor({ ...ex, id:"" }, 100)}" autocomplete="off" style="max-width:220px">
         <span class="hint" style="font-size:12.5px">Have microplates, half-pins or add-on weights? Set the smallest step and jumps use it.</span>` : ""}
         <button class="small" data-act="painToggle" data-x="${xi}" id="pain-${xi}">${it.pain ? "😣 Marked: this hurt today (tap to undo)" : "😣 This hurt today"}</button>
+        ${it.pain ? `<p class="hint" style="font-size:12.5px;margin:0">Next time this goes lighter. Sharp pain, or pain that lasts, is worth seeing a doctor or physio about.</p>` : ""}
         <button class="small" data-act="uniToggle" data-x="${xi}" id="uni-${xi}">${isUni(ex) ? "↔ One side at a time: on" : "↔ Doing it one side at a time?"}</button>
         ${xi < a.items.length-1 ? `<button class="small" data-act="sxSS" data-x="${xi}" id="ss-${xi}">${it.ss?"🔗 Unlink superset":`🔗 Superset with ${esc(exById(a.items[xi+1].ex).n)}`}</button>` : ""}
         <p class="hint" style="font-size:12.5px">Tap a set number to tag it: W warm-up (not counted), D drop set, F to failure.</p>
@@ -2279,7 +2285,7 @@ function pickBackupFile(){
   f.click();
 }
 function settingsView(){
-  return `<div class="panel"><h2>Settings &amp; backup</h2>
+  return `<div class="panel"><div class="row"><h2 class="grow">Settings &amp; backup</h2><span class="hint num" id="appVer">v${APP_VER}</span></div>
     <div class="row"><span class="grow" style="font-weight:600">Units</span><div class="chips"><button class="chip" data-act="units" data-v="lb" id="u-lb" aria-pressed="${U()==="lb"}">lb</button><button class="chip" data-act="units" data-v="kg" id="u-kg" aria-pressed="${U()==="kg"}">kg</button></div></div>
     <p class="hint">${confirmKey && confirmKey.startsWith("units-") ? `<b>Tap ${confirmKey.slice(6)} again</b> to switch and convert every logged weight, target, bodyweight and waist to ${confirmKey.slice(6)}.` : "Switching converts your logged weights, bodyweight and waist too, rounded to the nearest half."}</p>
     <div><span style="font-weight:600">Simple mode</span><div class="chips" style="margin-top:8px"><button class="chip" data-act="simple" data-v="1" id="simple-on" aria-pressed="${!!state.simple}">On</button><button class="chip" data-act="simple" data-v="0" id="simple-off" aria-pressed="${!state.simple}">Off</button></div><p class="hint" style="margin-top:6px">For newer lifters: hides the research playbook, calendar reminders, volume charts and the reps-in-reserve check. Targets and progress work the same.</p></div>
