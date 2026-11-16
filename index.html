@@ -1265,7 +1265,8 @@ function waistNote(){
 function proteinGoal(){
   if (state.body.pGoal) return state.body.pGoal;
   const w = latest("w"); if (!w) return null;
-  return Math.round((U() === "kg" ? w.v : w.v / LB) * (phaseOf() === "cut" ? 2.2 : 1.8) / 5) * 5;
+  const bw = week7("w", dayOf(w.k)) || w.v;   // the week's average, so one heavy morning doesn't move the goal
+  return Math.round((U() === "kg" ? bw : bw / LB) * (phaseOf() === "cut" ? 2.2 : 1.8) / 5) * 5;
 }
 function weightChart(){
   const wk = weekOf(Date.now()), pts = [];
