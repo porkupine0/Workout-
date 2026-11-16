@@ -1219,7 +1219,7 @@ const bwKey = () => { const t = dkey(Date.now()); return bwDay && bwDay < t ? bw
 const daysAgo = k => Math.round((dayOf(dkey(Date.now())) - dayOf(k)) / dayMs);
 function latest(field){ const k = Object.keys(blog()).filter(k => blog()[k][field] != null).sort().pop(); return k ? { k, v:blog()[k][field] } : null; }
 // average of a value over the 7 days ending on day t
-function week7(field, t){ const v = []; for (let i = 0; i < 7; i++){ const e = blog()[dkey(addDays(t, -i))]; if (e && e[field] != null) v.push(e[field]); } return v.length ? avg(v) : null; }
+function week7(field, t, min = 1){ const v = []; for (let i = 0; i < 7; i++){ const e = blog()[dkey(addDays(t, -i))]; if (e && e[field] != null) v.push(e[field]); } return v.length >= min ? avg(v) : null; }
 // change per week from a straight line through the last 4 weeks of weigh-ins, so day-to-day water swings average out
 function weightTrend(){
   const pts = Object.keys(blog()).filter(k => blog()[k].w != null && dayOf(k) > addDays(Date.now(), -29)).map(k => [dayOf(k) / (7*dayMs), blog()[k].w]);
@@ -1263,10 +1263,10 @@ function weightAdvice(){
 }
 function waistNote(){
   const now = week7("waist", Date.now()), then = week7("waist", addDays(Date.now(), -28)); if (now == null || then == null) return "";
-  const d = now - then, t = weightTrend(), gaining = t && t.pct > .1, small = U() === "kg" ? .7 : .3, dt = `${d >= 0 ? "+" : "−"}${Math.abs(d).toFixed(1)} ${lenUnit()}`;
-  if (Math.abs(d) < small) return gaining ? `Waist steady over 4 weeks (${dt}) while your weight climbs: the gain is likely mostly muscle.` : `Waist steady over 4 weeks (${dt}).`;
+  const d = now - then, t = weightTrend(), gaining = t && t.pct > .1, small = lenUnit() === "cm" ? 1.2 : .5, dt = `${d >= 0 ? "+" : "−"}${Math.abs(d).toFixed(1)} ${lenUnit()}`;
+  if (Math.abs(d) < small) return gaining ? `Waist steady over 4 weeks (${dt}) while your weight climbs: that fits gaining mostly muscle.` : `Waist steady over 4 weeks (${dt}).`;
   if (d > 0) return `Waist up ${dt} in 4 weeks.${gaining ? " If it keeps rising, slow the gain a little." : ""}`;
-  return `Waist down ${dt} in 4 weeks: you're losing fat.`;
+  return `Waist down ${dt} in 4 weeks, which fits losing fat. Measure the same way each time; a tape can be off by about ${lenUnit() === "cm" ? "1 cm" : "half an inch"}.`;
 }
 // grams a day: 1.6–2.2 g per kg of bodyweight builds the most muscle (Morton 2018, Iraki 2019); more while cutting (Helms 2014)
 function proteinGoal(){
@@ -1425,7 +1425,7 @@ function askPersist(){ try{ if (!state.persistAsked && navigator.storage && navi
 
 function bodyView(){
   const k = dkey(Date.now()), e = blog()[k] || {}, wk = bwKey(), we = blog()[wk] || {}, past = wk !== k, yk = dkey(addDays(Date.now(), -1)), lw = latest("w"), lwa = latest("waist"), goal = proteinGoal(), p = e.p || 0, adv = weightAdvice(), wn = waistNote();
-  const avgNow = week7("w", Date.now()), avgThen = week7("w", addDays(Date.now(), -7)), t = weightTrend();
+  const avgNow = week7("w", Date.now()), avgThen = week7("w", addDays(Date.now(), -7), 3), t = weightTrend();
   const last7 = Array.from({ length:7 }, (_, i) => { const d = addDays(Date.now(), i - 6), x = blog()[dkey(d)] || {}; return { d, p:x.p || 0 }; });
   const hits = goal ? last7.filter(x => x.p >= goal).length : 0;
   const todayCard = `<div class="panel"><div class="row"><h2 class="grow">Today</h2><span class="hint">${fmtDate(Date.now())}</span></div>
@@ -1442,7 +1442,7 @@ function bodyView(){
       <p class="hint">${goal ? `Goal: about ${phaseOf() === "cut" ? "2.2 g per kg (1 g per lb) while cutting" : "1.8 g per kg (0.8 g per lb)"} of bodyweight. ${p >= goal ? "✓ Done for today." : `${goal - p} g to go.`}` : "Log your weight to get a protein goal."} Research finds gains level off around 1.6 g per kg a day; up to 2.2 covers people who respond best.</p></div></div>`;
   const trend = `<div class="panel"><h3>Weight trend</h3>
     <div class="tiles"><div class="tile"><div class="v num">${avgNow != null ? +avgNow.toFixed(1) : "–"}</div><div class="l">7-day average (${U()})</div></div>
-      <div class="tile"><div class="v num">${t ? `${t.perWeek >= 0 ? "+" : "−"}${Math.abs(t.perWeek).toFixed(1)}` : avgNow != null && avgThen != null ? `${avgNow - avgThen >= 0 ? "+" : "−"}${Math.abs(avgNow - avgThen).toFixed(1)}` : "–"}</div><div class="l">${t ? "per week, 4-week trend" : "vs last week"}</div></div></div>
+      <div class="tile"><div class="v num">${t ? `${t.perWeek >= 0 ? "+" : "−"}${Math.abs(t.perWeek).toFixed(1)}` : avgNow != null && avgThen != null ? `${avgNow - avgThen >= 0 ? "+" : "−"}${Math.abs(avgNow - avgThen).toFixed(1)}` : "–"}</div><div class="l">${t ? "per week, 4-week trend" : avgNow != null && avgThen != null && week7("w", Date.now(), 3) == null ? "vs last week (few weigh-ins)" : "vs last week"}</div></div></div>
     ${weightChart()}
     <p class="${adv.kind === "up" ? "ok" : adv.kind === "down" ? "err" : "hint"}" style="${adv.kind ? "" : ""}">${esc(adv.txt)}</p>
     ${wn ? `<p class="hint">📏 ${esc(wn)}</p>` : ""}
