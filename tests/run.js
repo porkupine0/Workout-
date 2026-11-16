@@ -179,6 +179,12 @@ const ok = (cond, name, detail) => { if (cond){ passes++; } else { fails++; cons
     state.body.photos.push(P('c1', 4000, m(1.50, .80, 1.20, .90), { cal:1 }), P('c2', 4100, m(1.53, .80, 1.20, .90), { cal:2 })); calibCheck();
     const th = photoTh('front', 'taper'), floor = photoTh('front', 'hip'), after = photoSummary(now); state.body.photos = []; return { prev, before, th:+th.toFixed(3), floor, after }; });
   ok(pc.prev === 'p1' && /ratio up/.test(pc.before) && pc.th > .029 && pc.floor === .02 && !/ratio up/.test(pc.after), 'photo calibration raises the noise threshold; flagged photos skipped', JSON.stringify(pc));
+  // blocks side by side: one column per block, e1RM and weekly sets from that block's workouts
+  const bc = await p.evaluate(() => { const F = n => lib().find(e => e.n === n).id, W = 7*864e5, t0 = Date.now() - 8*W; state.units = 'lb';
+    state.sessions = [0, 1, 4, 5].map(w => ({ id:'k'+w, dayId:'d', dayName:'D', start:t0 + w*W - 3600e3, end:t0 + w*W, items:[{ ex:F('Barbell Bench Press'), sets:[{ w:String(w < 4 ? 135 : 145), r:'8', done:true }] }] }));
+    state.blocks = [{ id:'x1', n:1, start:t0 - 864e5, end:t0 + 3*W, weeks:3, days:[] }]; state.block = { id:'x2', n:2, start:t0 + 3*W, weeks:6, intro:false, scheme:0 };
+    const h = blockCompare(), d = document.createElement('div'); d.innerHTML = h; const cells = [...d.querySelectorAll('tr')].find(r => /Bench/.test(r.textContent)); return { heads:d.querySelectorAll('thead th').length, bench:cells ? [...cells.querySelectorAll('td')].slice(1).map(td => td.textContent) : null }; });
+  ok(bc.heads === 3 && bc.bench && /^\d+$/.test(bc.bench[0]) && /\+7%/.test(bc.bench[1]), 'blocks side by side', JSON.stringify(bc));
   ok(errs.length === 0, 'no page errors', errs.join('\n'));
   // damaged saved data: rescue screen, and the stored data is not overwritten
   for (const [name, raw] of [['unreadable', '{"v":1,"units":"lb","days":[],"sessions":[{"id":"a"'], ['wrong-typed', JSON.stringify({ v:1, units:'lb', days:[], sessions:[{ id:'s', dayId:'d', start:1, end:2, items:[] }], body:'oops', goals:5 })]]){

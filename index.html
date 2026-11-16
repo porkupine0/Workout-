@@ -2393,6 +2393,34 @@ function historyView(){
   return `<div class="panel"><div class="row"><h2 class="grow">History</h2><span class="hint num">${plural(state.sessions.length,"workout")}</span></div>${aiKey ? `<button class="small" data-act="plOpen" id="plOpenH">📷 Log a past workout from a photo</button>` : ""}${list}</div>`;
 }
 
+// Your last 4 training blocks next to each other, worked out from the workouts themselves (so a unit switch stays right):
+// workouts done, estimated 1RM on the lifts you did in at least two of them, weekly hard sets per muscle, bodyweight and waist.
+function blockCompare(){
+  const B = [...state.blocks.map(b => ({ n:b.n, start:b.start, end:b.end })), state.block ? { n:state.block.n, start:state.block.start, end:null, now:true } : null].filter(Boolean).slice(-4);
+  if (B.length < 2) return "";
+  const cols = B.map(b => { const S = blockSessions(b).filter(x => !x.light), end = b.end || Date.now(), wks = Math.max(1, (end - b.start) / (7*dayMs)), best = {}, sets = {};
+    S.forEach(x => x.items.forEach(it => { const ex = exById(it.ex), work = it.sets.filter(q => q.done && q.tag !== "W");
+      work.forEach(q => { const v = ex.t === "time" ? null : e1rm((num(q.w) || 0) + baseOf(ex), num(q.r)); if (v) best[it.ex] = Math.max(best[it.ex] || 0, v - baseOf(ex)); });
+      Object.entries(creditOf(ex)).forEach(([m, c]) => { sets[m] = (sets[m] || 0) + c * work.length; }); }));
+    const wAt = t => week7("w", t, 2), waAt = t => week7("waist", t, 1);
+    return { b, S, wks, best, sets, w0:wAt(addDays(b.start, 6)), w1:wAt(end), wa0:waAt(addDays(b.start, 6)), wa1:waAt(end) }; });
+  const lifts = Object.keys(Object.assign({}, ...cols.map(c => c.best))).filter(id => cols.filter(c => c.best[id]).length >= 2)
+    .sort((a, b) => cols.filter(c => c.best[b]).length - cols.filter(c => c.best[a]).length || cols.reduce((t, c) => t + (c.best[b] || 0), 0) - cols.reduce((t, c) => t + (c.best[a] || 0), 0)).slice(0, 6);
+  const mus = LIFT_MUSCLES.filter(m => cols.some(c => (c.sets[m] || 0) / c.wks >= 1));
+  const chg = (a, b, u) => a != null && b != null ? `${b - a >= 0 ? "+" : "−"}${Math.abs(b - a).toFixed(1)} ${u}` : "–";
+  const row = (label, f) => `<tr><td style="text-align:left">${label}</td>${cols.map(f).join("")}</tr>`;
+  const cell = (v, prev) => `<td>${v == null ? "–" : Math.round(v)}${v != null && prev != null ? `<br><span class="hint" style="font-size:11px">${v >= prev ? "+" : "−"}${Math.abs(Math.round((v / prev - 1) * 100))}%</span>` : ""}</td>`;
+  return `<div class="tablewrap"><table class="st"><thead><tr><th style="text-align:left"></th>${cols.map(c => `<th>Block ${c.b.n}${c.b.now ? " (now)" : ""}</th>`).join("")}</tr></thead><tbody>
+    ${row("Dates", c => `<td style="font-size:12px">${new Date(c.b.start).toLocaleDateString(undefined, { month:"short", day:"numeric" })}<br>${Math.round(c.wks)} wk</td>`)}
+    ${row("Workouts", c => `<td>${c.S.length}<br><span class="hint" style="font-size:11px">${(c.S.length / c.wks).toFixed(1)}/wk</span></td>`)}
+    ${lifts.length ? `<tr><th colspan="${cols.length + 1}" style="text-align:left">Est. 1RM (${U()})</th></tr>` + lifts.map(id => row(esc(exById(id).n), (c, i) => { const prev = cols.slice(0, i).reverse().find(p => p.best[id]); return cell(c.best[id] || null, prev ? prev.best[id] : null); })).join("") : ""}
+    ${mus.length ? `<tr><th colspan="${cols.length + 1}" style="text-align:left">Hard sets a week</th></tr>` + mus.map(m => row(esc(m), c => `<td>${fmtSets((c.sets[m] || 0) / c.wks)}</td>`)).join("") : ""}
+    <tr><th colspan="${cols.length + 1}" style="text-align:left">Body, start → end</th></tr>
+    ${row("Bodyweight", c => `<td>${chg(c.w0, c.w1, U())}</td>`)}
+    ${row("Waist", c => `<td>${chg(c.wa0, c.wa1, lenUnit())}</td>`)}
+  </tbody></table></div>
+  <p class="hint" style="font-size:12.5px">Estimated 1RM is your best set in each block (it drifts with effort, so look for the trend). Lighter weeks aren't counted. Bodyweight compares the first and last week's averages.</p>`;
+}
 function progressView(){
   const S = state.sessions;
   if (!S.length) return `<div class="panel"><h2>Progress</h2><p class="hint">Finish a workout and your stats, records and charts show up here.</p></div>`;
@@ -2471,7 +2499,8 @@ function progressView(){
   // charts fold away so the page stays short; simple mode leaves out the coaching panels
   const fold = (id, title, html) => `<details class="fold" id="${id}"><summary class="foldsum">${title}</summary>${html}</details>`;
   const simple = !!state.simple;
-  return tiles + fold("pf-cal", "📅 Last 8 weeks", cal) + (simple ? "" : fold("pf-vol", "📊 Weekly volume", bars) + fold("pf-mus", "💪 Hard sets per muscle", muscles))
+  const blocksCmp = blockCompare();
+  return tiles + fold("pf-cal", "📅 Last 8 weeks", cal) + (blocksCmp ? fold("pf-blk", "🧱 Blocks side by side", blocksCmp) : "") + (simple ? "" : fold("pf-vol", "📊 Weekly volume", bars) + fold("pf-mus", "💪 Hard sets per muscle", muscles))
     + (simple ? "" : fold("pf-rir", "🎯 Reps-in-reserve check", calCard)) + prTable.replace(calCard, "") + detail;
 }
 
