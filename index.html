@@ -594,8 +594,8 @@ const SS_PREF = { none:"No supersets", time:"Only to save time", max:"As many as
 const LOOKS = { vtaper:["V-taper: wide back and shoulders", ["Back","Shoulders"]], arms:["Bigger arms", ["Biceps","Triceps"]], chest:["Fuller chest", ["Chest"]],
   legs:["Bigger legs", ["Quads","Hamstrings"]], glutes:["Glutes", ["Glutes"]], lean:["Lean and defined", []], athletic:["Athletic and strong", []] };
 const WHERE_EQ = { home:"BB DB BW BA KB EZ PL TB OT CD", db:"DB BW BA KB PL OT CD", bw:"BW BA OT CD" };
-// How long to run one plan before refreshing it. Deloads are usually planned every 4–8 weeks (Bell et al. 2025),
-// athletes average about one every 5–6 weeks (Bell et al. 2024), and beginners keep progressing on the same lifts longer.
+// How long to run one plan before refreshing it. Deloads are usually planned every 4–8 weeks;
+// athletes average about one every 5–6 weeks (Rogerson, Bell et al. 2024 survey), and beginners keep progressing on the same lifts longer.
 const REC_WEEKS = { new:10, mid:6, adv:6 };
 const LIFT_MUSCLES = ["Chest","Back","Shoulders","Biceps","Triceps","Quads","Hamstrings","Glutes","Calves","Core"];
 const START_SETS = { Chest:10, Back:12, Shoulders:8, Quads:10, Hamstrings:8, Glutes:6, Biceps:6, Triceps:6, Calves:6, Core:4 };
@@ -1146,7 +1146,7 @@ function targetFor(tpl, ctx){
     const w = roundTo(W + st, gr), r = Math.min(hi, rtfAt(e1, w + bs) - rir[0]);   // feeling great: the harder end of this week's effort
     if (w > W && r >= lo && !(klass(ex) === "iso" && st / (W + bs) > .10)) return fill(w, withDrop(r), "up", `Great day: you were within a rep of ${hi} ${ago}, so take the jump to ${fmtW(w)} and aim for ${r} on your first set. If the first set moves slowly, drop back to ${fmtW(W)}.`);
   }
-  const isoBig = klass(ex) === "iso" && st / (W + bs) > .10;   // isolation jumps over 10% wait for 2 extra reps (Plotkin 2022)
+  const isoBig = klass(ex) === "iso" && st / (W + bs) > .10;   // isolation jumps over 10% wait for 2 extra reps (a coaching rule of thumb; reps and load progress growth about equally, Plotkin 2022)
   if (ready){
     for (let j = isoBig ? (readyAt(hi + 2) ? 1 : 0) : readyAt(hi + 2) ? 2 : 1; j >= 1; j--){ const w = roundTo(W + st*j, gr), r = Math.min(hi, rtfAt(e1, w + bs) - rir[0]), T = withDrop(r);   // first set at the lower end of this week's reserve; later sets follow your usual drop
       if (w > W && r >= lo) return fill(w, T, "up", `Up ${fmtW(w - W)}: you hit ${hi} on your first set ${ago} and the rest stayed in range. Aim for ${T.join(", ")}${n > 1 && T.some((v, k) => k && v < T[0]) ? `, following your usual drop from set to set` : ""}.`); }
@@ -1432,7 +1432,7 @@ function bodyView(){
     <div class="gfield"><div class="row"><span class="gl grow">Protein</span><span class="num"><b>${p}</b>${goal ? ` / ${goal}` : ""} g</span></div>
       ${goal ? `<div class="pbar"><span style="width:${Math.min(100, p / goal * 100)}%;${p >= goal ? "background:var(--good)" : ""}"></span></div>` : ""}
       <div class="chips">${[20,30,40].map(g => `<button class="chip" data-act="pAdd" data-v="${g}" id="pAdd-${g}">+${g} g</button>`).join("")}<button class="chip" data-act="pAdd" data-v="-10" id="pAdd-m10" ${p ? "" : "disabled"}>−10 g</button></div>
-      <p class="hint">${goal ? `Goal: about ${phaseOf() === "cut" ? "2.2 g per kg (1 g per lb) while cutting" : "1.8 g per kg (0.8 g per lb)"} of bodyweight. ${p >= goal ? "✓ Done for today." : `${goal - p} g to go.`}` : "Log your weight to get a protein goal."} Research puts the sweet spot at 1.6–2.2 g per kg a day.</p></div></div>`;
+      <p class="hint">${goal ? `Goal: about ${phaseOf() === "cut" ? "2.2 g per kg (1 g per lb) while cutting" : "1.8 g per kg (0.8 g per lb)"} of bodyweight. ${p >= goal ? "✓ Done for today." : `${goal - p} g to go.`}` : "Log your weight to get a protein goal."} Research finds gains level off around 1.6 g per kg a day; up to 2.2 covers people who respond best.</p></div></div>`;
   const trend = `<div class="panel"><h3>Weight trend</h3>
     <div class="tiles"><div class="tile"><div class="v num">${avgNow != null ? +avgNow.toFixed(1) : "–"}</div><div class="l">7-day average (${U()})</div></div>
       <div class="tile"><div class="v num">${t ? `${t.perWeek >= 0 ? "+" : "−"}${Math.abs(t.perWeek).toFixed(1)}` : avgNow != null && avgThen != null ? `${avgNow - avgThen >= 0 ? "+" : "−"}${Math.abs(avgNow - avgThen).toFixed(1)}` : "–"}</div><div class="l">${t ? "per week, 4-week trend" : "vs last week"}</div></div></div>
@@ -2158,7 +2158,7 @@ function goalsBody(){
       <p class="hint" style="font-size:12.5px">${{ cut:"Cutting: volume holds steady (no more than 16 hard sets a muscle a week), protein goes up, and holding your strength counts as winning.", maintain:"Maintaining: the normal plan, up to 20 hard sets a muscle a week.", gain:"Gaining: more room to add sets (up to 22 a muscle a week) where your feedback says a muscle can take it." }[phaseOf()]}</p></div>
     <div class="gfield"><span class="gl">How long you've trained consistently</span>${chips("exp", EXPS)}</div>
     <div class="gfield"><span class="gl">Priority muscles</span><div class="chips">${LIFT_MUSCLES.map(m => `<button class="chip" data-act="prio" data-v="${m}" id="gp-${slug(m)}" aria-pressed="${g.priority.includes(m)}">${m}</button>`).join("")}</div>
-      <p class="hint">Up to 3. They get a little more volume, a second day if needed, and go first in the workout, where lifts gain the most (Nunes 2021).</p></div>
+      <p class="hint">Up to 3. They get a little more volume, a second day if needed, and go first in the workout, where that exercise gains the most strength (Nunes 2021; order made no clear difference to muscle growth).</p></div>
     <div class="gfield"><span class="gl">Build weeks</span><div class="row" style="gap:8px;align-items:center"><span class="hint grow">From week 3, a 4th set on 1–2 exercises a day (priority muscles first) while they're still progressing.</span><button class="chip" data-act="buildToggle" id="buildToggle" aria-pressed="${state.buildOn !== false}">${state.buildOn !== false ? "On" : "Off"}</button></div></div>
     <div class="gfield"><span class="gl">Where you train</span>${chips("where", WHERES)}</div>
     <details class="gfield"><summary class="gl" style="cursor:pointer">My gym's equipment <span class="hint" style="font-weight:400">(${GEAR.length - g.noGear.length} of ${GEAR.length})</span></summary>
@@ -2195,13 +2195,13 @@ function goalsPanel(){
 function playbook(){
   return `<details class="panel"><summary style="cursor:pointer;font-weight:800">📘 Physique playbook: what the research says</summary>
     <ul class="playbook" style="margin:10px 0 0;padding-left:20px">
-      <li><b>Run one plan for about 6 weeks, then refresh it.</b> No study pins down an exact number. Coaches and athletes usually build in an easier week every 4–8 weeks, about every 5–6 weeks on average (Bell et al. 2024, 2025). Six weeks gives you time to progress on every lift. Beginners can run the same plan for 8–12 weeks while the weights keep going up. The app asks you to refresh when the block ends, or sooner if most lifts stall.</li>
+      <li><b>Run one plan for about 6 weeks, then refresh it.</b> No study pins down an exact number. Coaches and athletes usually build in an easier week every 4–8 weeks, about every 5–6 weeks on average (Rogerson, Bell et al. 2024 survey). Six weeks gives you time to progress on every lift. Beginners can run the same plan for 8–12 weeks while the weights keep going up. The app asks you to refresh when the block ends, or sooner if most lifts stall.</li>
       <li><b>Change exercises on purpose, not at random.</b> Rotating to new angles for the same muscles (incline for flat, seated curls for lying) grows the whole muscle more evenly (Fonseca 2014). Changing exercises every session isn't better, and changing too often can slow progress (Kassiano 2022).</li>
-      <li><b>Week 1 of a new block is a learning week.</b> You do one set fewer and stop 3–4 reps short of failure while you find your weights. It doubles as a deload. Easier training beats a week off: a full week off cost strength in one study (Coleman 2024).</li>
-      <li><b>Put your priority muscle first.</b> Exercises done early in a workout gain the most strength (Nunes 2021 meta-analysis).</li>
+      <li><b>Week 1 of a new block is a learning week.</b> You do one set fewer and stop 3–4 reps short of failure while you find your weights. It doubles as a deload. A full week off, compared with training straight through, cost some lower-body strength but not muscle in one study (Coleman 2024), so an easier week is a safe middle ground.</li>
+      <li><b>Put your priority muscle first.</b> The exercise you do first gains the most strength, though order made no clear difference to muscle growth (Nunes 2021 meta-analysis). Going first also means it gets your best effort.</li>
       <li><b>Train muscles at long lengths.</b> Seated leg curls grew the hamstrings more than lying curls (Maeo 2021), and overhead extensions grew the triceps more than pushdowns (Maeo 2023).</li>
       <li><b>Add weight once your first set tops out your rep range and the others stay in range,</b> dropping no more than about 2 reps per set from fatigue. Then work back up. That's double progression. Upper-body jumps are about 2.5–5 lb, lower-body about 5–10 lb (NSCA). Your targets do this for you.</li>
-      <li><b>Rest 60–90 s on isolation moves, 2–3 min on big compounds.</b> A 2024 meta-analysis found a small growth advantage for resting more than 60 s instead of less, and no clear extra benefit past about 90 s. Heavy squats, deadlifts and presses get longer so you can repeat your reps. New exercises you add get these rest times automatically.</li>
+      <li><b>Rest 60–90 s on isolation moves, 2–3 min on big compounds.</b> A 2024 meta-analysis found a small, uncertain growth advantage for resting more than 60 s instead of less (mostly in untrained people), and no clear extra benefit past about 90 s. Heavy squats, deadlifts and presses get longer so you can repeat your reps. New exercises you add get these rest times automatically.</li>
       <li><b>Train close to failure.</b> Most working sets should end 0–3 reps short of failure (RIR 0–3). Log it with the RIR buttons after each set.</li>
       <li><b>Aim for about 10–20 hard sets per muscle each week,</b> split over 2 or more sessions. The Progress tab tracks this for you.</li>
       <li><b>Rep ranges from about 6 to 30 all build muscle</b> when sets are taken close to failure. 6–15 is the most time-efficient.</li>
@@ -3162,13 +3162,13 @@ function coachView(){
 // What the research says, as the app applies it. Claude plans from this and its own knowledge.
 const RESEARCH_BRIEF = `Research the plan should follow (use your own knowledge of the literature too, and go with the stronger evidence where it differs):
 - Volume: hard sets per muscle per week show a dose-response with diminishing returns; about 10–20 a week suits most trained lifters (Schoenfeld 2017; Pelland 2024). Priority muscles toward the top, maintenance muscles can sit lower. Count a set fully for the muscle it mainly trains and half for a big helper (rows → biceps, presses → triceps, squats and hinges → glutes), as the app does (Pelland 2024).
-- Frequency: spreading a muscle's weekly sets over 2+ days beats cramming them into one when volume is moderate to high, mostly because per-session sets stay high quality (Schoenfeld 2016; Pelland 2024). More than about 6–8 hard sets for one muscle in one session adds little.
+- Frequency: once weekly volume is equal, how many days it's spread over makes little difference to growth (Pelland 2024), though it helps strength; spreading sets over 2+ days mainly keeps each set high quality. Returns from more sets for one muscle in one session shrink past about 10–11 hard sets (Remmert 2025, preprint).
 - Effort: most growth comes from sets taken 0–3 reps short of failure; isolation work can go closer than big compounds (Refalo 2023; Robinson 2024).
 - Rest: more than 60 s between sets grows a little more than less; past about 90 s adds little for isolation; big compounds need 2–3 min to keep reps up (Singer 2024).
 - Exercise selection: train each muscle from its key angles and favor exercises that load it hard at long muscle lengths (overhead triceps extensions, seated leg curls, incline curls, deep stretch flys and presses) (Maeo 2021, 2023; Kassiano 2023). Stable machines and cables let you push close to failure safely.
 - Rotation: change exercises with a purpose. Keep lifts that are still progressing; give stalled ones a new variation for the same muscle. Changing everything every block isn't better (Kassiano 2022).
 - Arms: with 2+ biceps exercises a week, use both elbow positions: one with the elbows behind the body (incline or Bayesian curl), which grew the biceps itself more, and one with the elbows in front (preacher, spider), which grew the lower arm and brachialis more (Kassiano 2025; Kobayashi 2026; one cable study found no difference, Pedrosa 2025). For triceps, include an overhead extension, which grew all three heads more than pushdowns (Maeo 2023), plus a pushdown or other extension; cross-body extensions are a fine variety pick but not required.
-- Order: exercises done early in a session progress best, so priority muscles and main lifts go first (Nunes 2021).
+- Order: exercises done early in a session gain the most strength in that exercise; order shows no clear effect on growth (Nunes 2021). Priority muscles and main lifts still go first so they get the best effort.
 - Supersets: pairing exercises for muscles that don't overlap (chest with back, biceps with triceps, upper with lower) saves time with little loss in reps or growth. Pairing muscles that overlap (rows then curls, face pulls then lateral raises, presses then pushdowns) cuts the second exercise's reps and makes its progress hard to read. Don't superset a day's heaviest main lift, except with something unrelated and easy like calves or core.
 - Muscle-specific picks: standing (straight-knee) calf raises grew the gastrocnemius far more than seated ones (Kinoshita 2023), so lead with standing; squats and leg presses barely grow the rectus femoris, so include a leg extension (Zabaleta-Korta 2021); squats grew the glutes about as much as hip thrusts and the quads more (Plotkin 2023), so hip thrusts are optional unless glutes are a priority; machines and free weights build muscle about equally (Haugen 2023).
 - Range of motion: use full range by default. Partials in the stretched half grew as much or more than full range, partials in the shortened half grew less (Wolf 2023; Wolf 2025). Lengthened partials after failure are an optional finisher, not a rule.
@@ -3305,7 +3305,7 @@ function checkPlan(plan){
     const M = P.plan[m]; if (!M || M.target == null) return;
     const { sets, days } = aiSets(plan, m), lo = M.prio ? M.target - 1 : Math.max(MAJOR.has(m) ? 6 : 2, M.target - 4), hi = M.target + 5;
     if (sets < lo) hard.push(`${m}: ${sets} hard sets a week. Aim for about ${M.target}, at least ${lo}${M.prio ? ", since it's a priority" : ""}.`);
-    else if (sets > hi) hard.push(`${m}: ${sets} hard sets a week is more than it needs. Aim for about ${M.target}, no more than ${hi}.`);
+    else if (sets > hi) hard.push(`${m}: ${sets} hard sets a week is more than it likely pays off, with diminishing returns. Aim for about ${M.target}, no more than ${hi}.`);
     if (g.split !== "bro" && review.days >= 2 && sets >= 8 && days < 2) hard.push(`${m}: all ${sets} sets are on one day. Spread them over at least 2 days.`);
   });
   const angles = m => plan.days.flatMap(d => d.items.map(it => exById(it.ex)).filter(x => x.m === m).map(angleOf));
