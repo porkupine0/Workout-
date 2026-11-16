@@ -1147,6 +1147,8 @@ function targetFor(tpl, ctx){
   const repsAt = w => rtfAt(e1, w + bs) - rir[1];   // reps at plates w (plus the machine's starting resistance), leaving this week's reserve
   if (ctx.intro){ const w = pct90(); return fill(w, Math.max(lo, Math.min(hi, repsAt(w))), "deload", `Learning week: about 90% of ${ago} (${fmtW(W)}). Stop 3–4 reps short of failure.`); }
   if (away >= 6){ const w = pct90(); return fill(w, lo, "down", `It's been ${away} weeks since you did this. Start around 90% of last time and build back up.`); }
+  // 3–5 weeks away: strength mostly holds for about 4 weeks off, so keep the weight but don't jump yet; match last time first
+  if ((Date.now() - latest.at) >= 21*dayMs) return fill(W, topR.map(r => Math.max(lo, Math.min(hi, r))), "same", `It's been ${away} weeks since you did this. Same weight as last time (${fmtW(W)}); match your reps before moving up.`);
   if (ready && (ctx.ready === "rough" || ctx.ready === "off"))
     return ctx.ready === "rough" ? fill(W, topR, "same", `Rough day: hold at ${fmtW(W)} and match ${ago}. The jump can wait for a better day.`)
       : fill(W, topR.map(r => r + 1), "same", `You've earned a jump, but not on an off day. Stay at ${fmtW(W)} and add a rep.`);

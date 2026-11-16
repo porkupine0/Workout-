@@ -23,6 +23,8 @@ const ok = (cond, name, detail) => { if (cond){ passes++; } else { fails++; cons
   t = await T(PD, [S([140,10],[140,10],[140,10]), { s:[[145,9],[145,7],[145,6]], back:{ w:140, reps:[11,10,10] } }, S([140,11],[140,11],[140,11])]); ok(t.flag !== 'test', 'no re-test after a failed test', t);
   t = await T(PD, [{ s:[[140,10],[140,9],[140,8]], pain:true }]); ok(t.kind === 'deload' && t.w < 140, 'pain backs off', t);
   t = await T(PD, [{ s:[[140,10],[140,9],[140,8]], gap:7 }]); ok(t.kind === 'down' && t.w < 140, 'long layoff restarts lighter', t);
+  t = await T(PD, [{ s:[[140,12],[140,10],[140,9]], gap:4 }]); ok(t.kind === 'same' && t.w === 140, '3-5 weeks off holds the weight, no jump', t);
+  t = await T(PD, [{ s:[[140,12],[140,10],[140,9]], gap:2 }]); ok(t.kind === 'up', '2 weeks off can still move up', t);
   t = await T(PD, Array(4).fill(S([140,10],[140,9],[140,8]))); ok(t.flag === 'reset', 'stall resets', t);
   t = await T(PD, Array(4).fill(S([140,10,3],[140,9,3],[140,8,3]))); ok(t.flag === 'push', 'stall with reps left says push', t);
   t = await T(PD, [{ s:[[140,12],[140,10],[140,9],[140,7]], extra:true }]); ok(t.kind === 'up', 'tired 4th set does not block a jump', t);
