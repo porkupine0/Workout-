@@ -151,6 +151,12 @@ const ok = (cond, name, detail) => { if (cond){ passes++; } else { fails++; cons
   const cs = await p.evaluate(() => { const F = n => lib().find(e => e.n === n).id; const items = [{ ex:F('Dumbbell Curl'), sets:3 }, { ex:F('Barbell Row'), sets:4 }, { ex:F('Wide-Grip Lat Pulldown'), sets:4 }];
     state.phase = 'maintain'; const r = { biceps:creditSets(items, 'Biceps', x => x.sets), back:creditSets(items, 'Back', x => x.sets), cap:volCaps().day }; state.phase = undefined; return r; });
   ok(cs.biceps === 7 && cs.back === 8 && cs.cap === 11, 'session volume: helper sets count half; cap 11', JSON.stringify(cs));
+  // weight-jump day: "still sore" still removes a set from the jumping lift
+  const jd = await p.evaluate(() => { const F = n => lib().find(e => e.n === n).id, S = (w, r) => ({ w:String(w), r:String(r), done:true, rir:2 }), W = 7*864e5; expoCache.key = 'x'; state.phase = 'maintain'; state.light = null; state.goals.priority = [];
+    state.days = [{ id:'dJ', name:'P', items:[{ ex:F('Wide-Grip Lat Pulldown'), sets:3, lo:8, hi:12, rest:120 }] }]; state.block = { id:'bJ', n:2, start:Date.now() - 1.5*W, weeks:6, intro:false, scheme:0 };
+    state.sessions = [{ id:'j1', dayId:'dJ', start:Date.now()-W-3600e3, end:Date.now()-W, items:[{ ex:F('Wide-Grip Lat Pulldown'), sets:[S(150,12),S(150,10),S(150,9)] }], fb:{ m:{ Back:{ sore:2 } } } }];
+    startSession(state.days[0], null); const it = state.active.items[0], r = { kind:it.target.kind, n:it.sets.length }; state.active = null; state.phase = undefined; return r; });
+  ok(jd.kind === 'up' && jd.n === 2, 'jump day: sore still removes a set', JSON.stringify(jd));
   ok(errs.length === 0, 'no page errors', errs.join('\n'));
   // damaged saved data: rescue screen, and the stored data is not overwritten
   for (const [name, raw] of [['unreadable', '{"v":1,"units":"lb","days":[],"sessions":[{"id":"a"'], ['wrong-typed', JSON.stringify({ v:1, units:'lb', days:[], sessions:[{ id:'s', dayId:'d', start:1, end:2, items:[] }], body:'oops', goals:5 })]]){
