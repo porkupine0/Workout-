@@ -3593,7 +3593,8 @@ function buildCount(ctx){
 function extraOK(tpl, item){
   const ex = exById(tpl.ex), lo = tpl.lo || 8;
   if (ex.t === "time" || klass(ex) === "heavy" || (tpl.sets || 3) !== 3 || !LIFT_MUSCLES.includes(ex.m)) return false;
-  if (!item || !item.target || item.target.kind === "new" || item.target.kind === "down" || item.target.flag) return false;
+  // not on a day the weight goes up: one change at a time, so a 4th set that dips under the range after a jump doesn't end the build
+  if (!item || !item.target || item.target.kind === "new" || item.target.kind === "down" || item.target.kind === "up" || item.target.flag) return false;
   const today = (state.active ? state.active.items : []).filter(x => exById(x.ex).m === ex.m).reduce((t, x) => t + x.sets.length, 0);
   const week = state.days.reduce((t, d) => t + d.items.filter(x => exById(x.ex).m === ex.m).reduce((u, x) => u + (x.sets || 3), 0), 0);
   const cp = volCaps(); if (today >= cp.day || week >= cp.week) return false;   // returns per extra set shrink past ~10 direct sets a session and ~20 a week (Remmert 2025; Pelland 2024)
@@ -3609,7 +3610,8 @@ function addBuildSets(a, day, ctx){
   const fbM = new Set(a.items.filter(x => x.fbAdj).map(x => exById(x.ex).m));   // feedback already set this muscle's volume today
   const pick = day.items.map((t, i) => i).filter(i => !a.items[i].extra && !fbM.has(exById(day.items[i].ex).m) && (muscleCall(exById(day.items[i].ex).m) || {}).call !== "less" && extraOK(day.items[i], a.items[i])).sort((x, y) => P(y) - P(x) || x - y).slice(0, n);
   pick.forEach(i => { const tpl = day.items[i], it = buildSessionItem({ ...tpl, sets:4 }, ctx, true), r = it.target.reps, lo = tpl.lo || 8;
-    if (r.length === 4 && r[2] !== "" && r[2] != null){ r[3] = Math.max(lo, (num(r[2]) || lo) - 1); it.sets[3].r = String(r[3]); }
+    if (r.length === 4 && r[2] !== "" && r[2] != null){ const was = r.join(", "); r[3] = Math.max(lo, (num(r[2]) || lo) - 1); it.sets[3].r = String(r[3]);
+      if (it.target.why) it.target.why = it.target.why.split(was).join(r.join(", ")); }   // the note quotes the same reps as the headline
     it.extra = true; a.items[i] = it; });
 }
 function savedDay(id){ const t = state.saved.find(z => z.id === id); return t ? { id:"saved:" + t.id, name:t.name, items:t.items.map(it => ({ ...it })), savedId:t.id } : null; }

@@ -112,6 +112,15 @@ const ok = (cond, name, detail) => { if (cond){ passes++; } else { fails++; cons
     state.tab = 'body'; render(); const save = v => { document.getElementById('bwIn').value = v; document.getElementById('bwSave').click(); return (state.body.log[k] || {}).w; };
     return [save('1800'), save('81.6'), save('81.6'), save('181')]; });
   ok(typo[0] == null && typo[1] == null && typo[2] === 81.6 && typo[3] === 181, 'weigh-in typos need a second tap or are refused', JSON.stringify(typo));
+  // build week: no 4th set on the day the weight goes up; a 4th set on a same-weight day matches its note
+  const bw = await p.evaluate(() => { const F = n => lib().find(e => e.n === n).id, W = 7*864e5, S = (w, r) => ({ w:String(w), r:String(r), done:true, rir:2 }); expoCache.key = 'x'; state.phase = 'maintain'; state.light = null; state.buildOn = true; state.goals.priority = [];
+    state.days = [{ id:'d1', name:'U', items:[{ ex:F('Wide-Grip Lat Pulldown'), sets:3, lo:8, hi:12, rest:120 }, { ex:F('Incline Dumbbell Press'), sets:3, lo:8, hi:12, rest:120 }] }];
+    state.block = { id:'b', n:2, start:Date.now() - 4.5*W, weeks:6, intro:false, scheme:0 };
+    state.sessions = [{ id:'h0', dayId:'d1', start:Date.now()-2*W-3600e3, end:Date.now()-2*W, items:[{ ex:F('Wide-Grip Lat Pulldown'), sets:[S(150,11),S(150,10),S(150,9)] }, { ex:F('Incline Dumbbell Press'), sets:[S(60,10),S(60,9),S(60,9)] }] }, { id:'h1', dayId:'d1', start:Date.now()-W-3600e3, end:Date.now()-W, items:[{ ex:F('Wide-Grip Lat Pulldown'), sets:[S(150,12),S(150,10),S(150,9)] }, { ex:F('Incline Dumbbell Press'), sets:[S(60,10),S(60,10),S(60,9)] }] }];
+    startSession(state.days[0], null); const a = state.active.items.map(it => ({ n:it.sets.length, kind:it.target.kind, reps:it.target.reps.join(', '), why:it.target.why || '' })); state.active = null; state.phase = undefined; return a; });
+  ok(bw[0].kind === 'up' && bw[0].n === 3, 'no 4th set on a jump day', JSON.stringify(bw));
+  ok(bw[1].n === 4 && bw[1].reps.split(', ').length === 4, 'build week still adds a 4th set on a same-weight day', JSON.stringify(bw));
+  ok(bw[1].n !== 4 || !/\d+, \d+, \d+, \d+/.test(bw[1].why) || bw[1].why.includes(bw[1].reps), '4th-set note matches headline', JSON.stringify(bw[1]));
   ok(errs.length === 0, 'no page errors', errs.join('\n'));
   console.log(`${passes} passed, ${fails} failed`); await b.close(); process.exit(fails ? 1 : 0);
 })();
