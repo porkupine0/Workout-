@@ -1373,7 +1373,8 @@ const REASON_TXT = { "no-person":"No person found in this photo.", "several-peop
 // the photo a new one is compared with: the latest earlier one of that pose that measured cleanly (no pose or clothing
 // warnings); a flagged one only when there's no clean one
 function prevOf(p){ const L = photos().filter(q => q.pose === p.pose && q.at < p.at && q.a && q.a.ok).sort((a, b) => b.at - a.at);
-  return L.find(q => !(q.a.flags || []).length) || L[0]; }   // a flagged one only when there's no clean one
+  const same = L.filter(q => (q.a.v || 1) === ((p.a && p.a.v) || 1)), M = same.length ? same : L;   // same measuring version first
+  return M.find(q => !(q.a.flags || []).length) || M[0]; }   // a flagged one only when there's no clean one
 // Photo noise, measured on your phone: 4 or more shots of one pose taken back to back (step out of frame and back
 // between them), so nothing changed. Only the measurements are kept, not the photos. Each check adds to a pooled spread
 // per pose and measurement; a month-to-month change is called real only past 2.77 × that spread (95% sure for one
@@ -1381,14 +1382,14 @@ function prevOf(p){ const L = photos().filter(q => q.pose === p.pose && q.at < p
 const prep = () => (state.body.prep || (state.body.prep = {}));
 function photoSD(pose, k){
   let ss = 0, df = 0;
-  ((prep()[pose] || {}).sessions || []).forEach(se => { const v = se.shots.map(m => m[k]).filter(x => x != null); if (v.length < 2) return;
+  ((prep()[pose] || {}).sessions || []).filter(se => (se.v || 2) === SCAN_V).forEach(se => { const v = se.shots.map(m => m[k]).filter(x => x != null); if (v.length < 2) return;
     const mu = avg(v); v.forEach(x => { ss += ((x - mu) / mu) ** 2; }); df += v.length - 1; });
   return df >= 3 ? { sd:Math.sqrt(ss / df), df } : null;
 }
 const photoTh = (pose, k) => { const r = photoSD(pose, k); return Math.max(.02, r ? 2.77 * r.sd : 0); };
 async function repeatAdd(files, pose){
   const P = prep(), box = P[pose] || (P[pose] = { sessions:[] }), now = Date.now();
-  let se = box.sessions[box.sessions.length - 1]; if (!se || now - se.at > 2 * 3600e3){ se = { at:now, shots:[], skipped:0 }; box.sessions.push(se); }
+  let se = box.sessions[box.sessions.length - 1]; if (!se || now - se.at > 2 * 3600e3){ se = { at:now, v:SCAN_V, shots:[], skipped:0 }; box.sessions.push(se); }
   showToast(`Measuring ${plural(files.length, "photo")}…`); softRender();
   for (const f of files){
     try{ const m = await scanner(), img = await blobImage(f), r = await m.analyze(img, pose); URL.revokeObjectURL(img.src);
