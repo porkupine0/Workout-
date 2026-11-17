@@ -265,7 +265,9 @@ export function measure(mask, width, height, lmPx, pose) {
   };
   if (side) {
     take('chest', choose(band('chest'), 'median', F.T));
-    const fs = lmPx.nose ? Math.sign(F.ts(lmPx.nose)[1]) : 0;   // which way the person faces: +n or -n
+    // which way the person faces (+n or -n), only when the nose is clearly off the body axis; a head turned toward the
+    // camera could swap front and back, and then belly depth is left out rather than guessed
+    const ns = lmPx.nose ? F.ts(lmPx.nose)[1] : 0, fs = Math.abs(ns) > .1 * F.T ? Math.sign(ns) : 0;
     const B = band('belly'), Lb = band('lumbar'), okB = B.filter(x => x && !x.arm), okL = Lb.filter(x => x && !x.arm);
     if (fs && okB.length >= B.length * .5 && okL.length >= Lb.length * .5) {
       const front = x => fs > 0 ? x.r : -x.l, back = x => fs > 0 ? -x.l : x.r, top3 = (a, f) => a.map(f).sort((p, q) => q - p).slice(0, 3);
@@ -273,7 +275,7 @@ export function measure(mask, width, height, lmPx, pose) {
       const bMin = -top3(okL, x => -back(x)).reduce((a, b) => a + b) / Math.min(3, okL.length), t = fr[0].t;
       m.belly = round((fMax + bMin) / F.T);
       lines.belly = [...F.at(t, -fs * bMin), ...F.at(t, fs * fMax)].map(v => round(v, 1));
-    } else take('belly', choose(B, 'max', F.T));
+    } else flags.push('belly-unclear');   // no fallback to the old straight-across reading: two definitions would mix
   } else {
     const sh = take('shoulder', choose(band('shoulder'), 'max', F.T, true));
     take('waist', choose(band('waist'), 'min', F.T));

@@ -228,6 +228,20 @@ const ok = (cond, name, detail) => { if (cond){ passes++; } else { fails++; cons
     state.body.log[dkey(addDays(Date.now(), -30))] = { waist:33 }; state.body.log[k].waist = 33.2; const fits = fitsNote();
     state.body.log = {}; state.phase = undefined; state.goals.height = ''; return { hs, refused, saved, kept, wh, cm, fits }; });
   ok(JSON.stringify(tp.hs) === '[180,180,180,180,180,180,180,null]' && tp.refused && tp.saved.arm === 15.5 && tp.saved.calf === 15 && tp.kept && tp.wh === .466 && tp.cm.arm === 39.4 && /mostly muscle/.test(tp.fits), 'tape sites, height, WHtR, fits note', JSON.stringify(tp));
+  // a hip warning keeps the waist; more shots lower the bar; stale tape stays quiet; '511' isn't a height; backup round trip keeps the new data
+  const nx = await p.evaluate(async () => { const q = { id:'h1', at:1, pose:'front', a:{ ok:true, v:SCAN_V, flags:['hip-unclear'], m:{ waist:.8, hip:.9, shoulder:1.2, taper:1.5, waistHip:.88 } } };
+    const keep = shotsOf(q)[0], hipGone = keep && keep.hip == null && keep.waist === .8;
+    state.body.photos = []; state.body.prep = { front:{ sessions:[{ at:1, v:SCAN_V, shots:[.8, .84, .77, .83, .79].map(w => ({ waist:w })) }] } };
+    const t1 = photoTh('front', 'waist'), t4 = photoTh('front', 'waist', 4, 4);
+    state.body.log = {}; state.body.log[dkey(addDays(Date.now(), -40))] = { waist:33, arm:15 }; state.body.log[dkey(addDays(Date.now(), -70))] = { waist:35, arm:14 };
+    const stale = fitsNote();
+    state.goals.height = '511'; const h511 = heightOk(heightCm()); state.goals.height = '';
+    state.body.log = { '2026-01-05':{ w:180, arm:15.5, calf:15 } }; state.body.photos = [{ id:'x1', at:5, pose:'front', a:{ ok:true, v:SCAN_V, flags:[], m:{ waist:.8 }, setup:{ arm:15, sep:.6 } }, extra:[{ ok:true, v:SCAN_V, flags:[], m:{ waist:.81 } }] }];
+    state.days = [{ id:'d', name:'D', items:[] }]; state.sessions = [];
+    const bk = JSON.stringify({ app:'iron-log', v:2, data:{ ...state, timer:null } }); state.body = { log:{}, photos:[] };
+    await restoreFrom(bk, 'body'); const rt = { arm:(blog()['2026-01-05'] || {}).arm, extra:(photos()[0] || {}).extra && photos()[0].extra.length, setup:!!(photos()[0] || {}).a && !!photos()[0].a.setup, prep:!!(state.body.prep && state.body.prep.front) };
+    state.body.photos = []; state.body.prep = {}; state.body.log = {}; return { hipGone, t1:+t1.toFixed(3), t4:+t4.toFixed(3), stale, h511, rt }; });
+  ok(nx.hipGone && nx.t4 < nx.t1 && nx.stale === '' && nx.h511 === null && nx.rt.arm === 15.5 && nx.rt.extra === 1 && nx.rt.setup && nx.rt.prep, 'photo per-reading warnings, shot-count threshold, stale fits, height range, backup round trip', JSON.stringify(nx));
   ok(errs.length === 0, 'no page errors', errs.join('\n'));
   // damaged saved data: rescue screen, and the stored data is not overwritten
   for (const [name, raw] of [['unreadable', '{"v":1,"units":"lb","days":[],"sessions":[{"id":"a"'], ['wrong-typed', JSON.stringify({ v:1, units:'lb', days:[], sessions:[{ id:'s', dayId:'d', start:1, end:2, items:[] }], body:'oops', goals:5 })]]){
