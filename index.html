@@ -1380,9 +1380,28 @@ function prevOf(p){ const L = photos().filter(q => q.pose === p.pose && q.at < p
 // per pose and measurement; a month-to-month change is called real only past 2.77 × that spread (95% sure for one
 // photo against one photo), never less than 2%. Until a pose is checked, 2% is used.
 const prep = () => (state.body.prep || (state.body.prep = {}));
+// A month's photo of a pose can have extra shots (numbers only, no image). Its reading is the median of every clean
+// shot measured by the current version; the photo itself is the first shot.
+const cleanShot = a => a && a.ok && !(a.flags || []).length;
+function shotsOf(p){ const v = p.a && p.a.v; return [p.a, ...(p.extra || []).filter(x => x.v === v)].filter(cleanShot).map(x => x.m); }
+function pm(p){ const S = shotsOf(p); if (S.length < 2) return p.a ? p.a.m : {};
+  const out = {}; Object.keys(S[0]).forEach(k => { const v = S.map(m => m[k]).filter(x => x != null).sort((a, b) => a - b); if (v.length) out[k] = v.length % 2 ? v[v.length >> 1] : (v[v.length / 2 - 1] + v[v.length / 2]) / 2; });
+  return out; }
+async function extraAdd(files, id){
+  const p = photos().find(q => q.id === id); if (!p || !p.a) return;
+  showToast(`Measuring ${plural(files.length, "shot")}…`); softRender(); let skipped = 0;
+  for (const f of files){
+    try{ const m = await scanner(), img = await blobImage(f), r = await m.analyze(img, p.pose); URL.revokeObjectURL(img.src);
+      (p.extra || (p.extra = [])).push({ ok:!!r.ok, m:r.m || {}, flags:r.flags || [], setup:r.setup || null, torso:r.torso || null, v:SCAN_V }); if (!cleanShot(r)) skipped++; }catch(e){ skipped++; }
+  }
+  save(); const n = shotsOf(p).length;
+  showToast(`${POSES[p.pose]}: ${n} clean shot${n === 1 ? "" : "s"}${skipped ? ` (${skipped} skipped: pose warning or not measurable)` : ""}. ${n >= 4 ? "That's plenty." : `${4 - n} more makes it steadier.`}`); softRender();
+}
 function photoSD(pose, k){
   let ss = 0, df = 0;
-  ((prep()[pose] || {}).sessions || []).filter(se => (se.v || 2) === SCAN_V).forEach(se => { const v = se.shots.map(m => m[k]).filter(x => x != null); if (v.length < 2) return;
+  const sets = [...((prep()[pose] || {}).sessions || []).filter(se => (se.v || 2) === SCAN_V),
+    ...photos().filter(q => q.pose === pose && q.a && q.a.v === SCAN_V).map(q => ({ shots:shotsOf(q) }))];
+  sets.forEach(se => { const v = se.shots.map(m => m[k]).filter(x => x != null); if (v.length < 2) return;
     const mu = avg(v); v.forEach(x => { ss += ((x - mu) / mu) ** 2; }); df += v.length - 1; });
   return df >= 3 ? { sd:Math.sqrt(ss / df), df } : null;
 }
@@ -1403,14 +1422,15 @@ async function repeatAdd(files, pose){
 }
 function metricRows(p){
   const a = p.a, q = prevOf(p); if (!a || !a.ok) return "";
-  return `<div class="metric">${(METRICS[p.pose] || []).filter(([k]) => a.m[k] != null).map(([k, l, good]) => { const v = a.m[k], o = q && q.a.m[k] != null ? q.a.m[k] : null, c = o ? (v - o) / o : null;
+  const M = pm(p), Q = q ? pm(q) : {}, n = shotsOf(p).length;
+  return `${n > 1 ? `<span class="hint" style="font-size:0.735rem">Median of ${n} shots</span>` : ""}<div class="metric">${(METRICS[p.pose] || []).filter(([k]) => M[k] != null).map(([k, l, good]) => { const v = M[k], o = Q[k] != null ? Q[k] : null, c = o ? (v - o) / o : null;
     return `<span>${l}</span><b>${v.toFixed(2)}</b><span class="tg ${c == null || Math.abs(c) < photoTh(p.pose, k) || !good ? "" : (c > 0) === (good > 0) ? "up" : "down"}">${c == null ? "first" : pct(c)}</span>`; }).join("")}</div>`;
 }
 function photoSummary(p){
   const a = p.a; if (!a) return "";
   if (!a.ok) return REASON_TXT[a.reason] || "This photo couldn't be measured.";
   const q = prevOf(p); if (!q) return "First measured photo of this pose. The next one is compared to it.";
-  const ch = k => a.m[k] != null && q.a.m[k] != null ? (a.m[k] - q.a.m[k]) / q.a.m[k] : null, out = [], since = new Date(q.at).toLocaleDateString(undefined,{month:"short",day:"numeric"}), T = k => photoTh(p.pose, k);
+  const A = pm(p), B = pm(q), ch = k => A[k] != null && B[k] != null ? (A[k] - B[k]) / B[k] : null, out = [], since = new Date(q.at).toLocaleDateString(undefined,{month:"short",day:"numeric"}), T = k => photoTh(p.pose, k);
   if (p.pose === "side"){ const b = ch("belly"), c = ch("chest");
     if (b != null && b <= -T("belly")) out.push(`belly depth down ${pct(b).slice(1)}`); if (b != null && b >= T("belly") + .01) out.push(`belly depth up ${pct(b).slice(1)}`); if (c != null && c >= T("chest")) out.push(`chest depth up ${pct(c).slice(1)}`);
   } else { const t = ch("taper"), w = ch("waist"), s = ch("shoulder");
@@ -1525,7 +1545,8 @@ function photosPanel(){
   const pd = photosDue(), list = checkins(), today = dkey(Date.now()), todays = photos().filter(p => dkey(p.at) === today);
   const showShoot = shoot || pd.due || todays.length;
   const slots = `<div class="pgal">${Object.entries(POSES).map(([pose, l]) => { const p = todays.filter(q => q.pose === pose).pop();
-      return p ? `<div class="pslot"><img class="pth" data-pid="${p.id}" alt="${l} photo" ${pcache[p.id] && pcache[p.id].thumb ? `src="${pcache[p.id].thumb}"` : ""} data-act="phView" data-id="${p.id}"><span>${l} ✓</span></div>`
+      return p ? `<div class="pslot"><img class="pth" data-pid="${p.id}" alt="${l} photo" ${pcache[p.id] && pcache[p.id].thumb ? `src="${pcache[p.id].thumb}"` : ""} data-act="phView" data-id="${p.id}"><span>${l} ✓${p.a ? ` · ${shotsOf(p).length}/4` : ""}</span>
+        ${p.a ? `<label for="px-${pose}" class="hint" style="font-size:0.735rem;cursor:pointer;text-decoration:underline">＋ another shot</label><input type="file" accept="image/*" multiple id="px-${pose}" data-extra="${p.id}" hidden>` : ""}</div>`
         : `<div class="pslot"><label for="ph-${pose}">＋ ${l}</label><input type="file" accept="image/*" id="ph-${pose}" data-photo="${pose}"><span>${l}</span></div>`; }).join("")}</div>`;
   const shootBox = showShoot ? `<ul class="playbook" style="margin:0;padding-left:20px"><li>Same spot, same light and same time (morning) every time. Even light from the front.</li><li>Phone upright at chest height, about 2 m (6 ft) away, on a timer. Whole body head to knees in frame.</li><li>Fitted clothes or swimwear, relaxed, arms slightly away from your sides.</li></ul>
     ${slots}<p class="hint">Photos stay on this phone, and so does the analysis. Nothing is uploaded.</p>${calibBox()}` : `<button data-act="phShoot" id="phShoot">📸 Take this month's photos</button>`;
@@ -3449,8 +3470,9 @@ function bodyText(){
   if (wa) out.push(`Waist ${wa.v} ${lenUnit()}${w0 != null && w1 != null ? `, ${w1 - w0 >= 0 ? "+" : "−"}${Math.abs(w1 - w0).toFixed(1)} ${lenUnit()} over 4 weeks` : ""}.`);
   const goal = proteinGoal(), pd = [...Array(28)].map((_, i) => blog()[dkey(addDays(Date.now(), -i))]).filter(e => e && e.p);
   if (goal && pd.length >= 5) out.push(`Protein: logged on ${pd.length} of the last 28 days, and hit the ${goal} g goal on ${pd.filter(e => e.p >= goal).length} of them.`);
-  ["front","back"].forEach(pose => { const P = photos().filter(q => q.pose === pose && q.a && q.a.ok && q.a.m && q.a.m.taper).sort((a, b) => a.at - b.at); if (!P.length) return;
-    const f = P[0], l = P[P.length-1]; out.push(`Progress photos (${pose}): ${pose === "front" ? "shoulder" : "upper-back"}-to-waist width ratio ${l.a.m.taper.toFixed(2)} on ${enDate(l.at)}${P.length >= 2 ? `, from ${f.a.m.taper.toFixed(2)} on ${enDate(f.at)} (${pct((l.a.m.taper - f.a.m.taper) / f.a.m.taper)})` : ""}.`); });
+  ["front","back"].forEach(pose => { const P = photos().filter(q => q.pose === pose && cleanShot(q.a) && q.a.v === SCAN_V && pm(q).taper).sort((a, b) => a.at - b.at); if (!P.length) return;
+    const f = pm(P[0]).taper, l = pm(P[P.length-1]).taper, th = photoTh(pose, "taper");
+    out.push(`Progress photos (${pose}, measured on the phone from the outline): shoulder-to-waist width ratio ${l.toFixed(2)} on ${enDate(P[P.length-1].at)}${P.length >= 2 ? `, from ${f.toFixed(2)} on ${enDate(P[0].at)} (${pct((l - f) / f)})` : ""}. Changes under about ${Math.round(th * 100)}% are within this person's photo noise.`); });
   return out.join(" ");
 }
 // how each muscle answered the feedback this block, for the next block's plan
@@ -4344,6 +4366,7 @@ function rerenderList(){
 }
 document.addEventListener("change", e => {
   const t = e.target;
+  if (t.dataset && t.dataset.extra && t.files && t.files.length){ const fs = [...t.files]; t.value = ""; extraAdd(fs, t.dataset.extra); return; }
   if (t.dataset && t.dataset.rep && t.files && t.files.length){ const fs = [...t.files]; t.value = ""; repeatAdd(fs, t.dataset.rep); return; }
   if (t.dataset && t.dataset.photo && t.files && t.files[0]){ const f = t.files[0]; t.value = ""; addPhoto(f, t.dataset.photo); return; }
   if (t.id === "cmpA" || t.id === "cmpB"){ cmp[t.id === "cmpA" ? "a" : "b"] = t.value; render(); return; }

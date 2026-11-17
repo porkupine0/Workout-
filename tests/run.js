@@ -198,6 +198,12 @@ const ok = (cond, name, detail) => { if (cond){ passes++; } else { fails++; cons
     const el = document.getElementById('xp-base'); el.value = '30'; el.dispatchEvent(new Event('input', { bubbles:true })); document.getElementById('exPageClose').click();
     const r = { open, base:state.base[F('Machine Chest Press')], closed:!document.getElementById('exPageClose'), cardHasBase:!!document.getElementById('base-0') }; state.active = null; delete state.base[F('Machine Chest Press')]; return r; });
   ok(xpg.open && xpg.base === 30 && xpg.closed && !xpg.cardHasBase, 'exercise page opens, saves, closes', JSON.stringify(xpg));
+  // multi-shot months: a photo's reading is the median of its clean shots (current version); the shots feed the noise pool
+  const ms = await p.evaluate(() => { state.body.photos = []; state.body.prep = {}; const m = w => ({ taper:1.5, waist:w, shoulder:1.2, hip:.9 });
+    const q = { id:'m1', at:1, pose:'front', a:{ ok:true, m:m(.80), flags:[], v:SCAN_V }, extra:[{ ok:true, m:m(.82), flags:[], v:SCAN_V }, { ok:true, m:m(.79), flags:[], v:SCAN_V }, { ok:true, m:m(.95), flags:['turned'], v:SCAN_V }, { ok:true, m:m(.70), flags:[], v:SCAN_V - 1 }] };
+    const q2 = { id:'m2', at:2, pose:'front', a:{ ok:true, m:m(.81), flags:[], v:SCAN_V }, extra:[{ ok:true, m:m(.80), flags:[], v:SCAN_V }, { ok:true, m:m(.83), flags:[], v:SCAN_V }] };
+    state.body.photos.push(q, q2); const r = { n:shotsOf(q).length, med:pm(q).waist, sd:!!photoSD('front', 'waist') }; state.body.photos = []; return r; });
+  ok(ms.n === 3 && ms.med === .8 && ms.sd, 'multi-shot: median of clean shots, feeds noise', JSON.stringify(ms));
   ok(errs.length === 0, 'no page errors', errs.join('\n'));
   // damaged saved data: rescue screen, and the stored data is not overwritten
   for (const [name, raw] of [['unreadable', '{"v":1,"units":"lb","days":[],"sessions":[{"id":"a"'], ['wrong-typed', JSON.stringify({ v:1, units:'lb', days:[], sessions:[{ id:'s', dayId:'d', start:1, end:2, items:[] }], body:'oops', goals:5 })]]){
