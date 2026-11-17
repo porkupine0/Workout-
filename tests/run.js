@@ -213,6 +213,21 @@ const ok = (cond, name, detail) => { if (cond){ passes++; } else { fails++; cons
     state.body.photos = [mk(0, .8), mk(1, .8), mk(2, .8, 35)]; const note = setupNote(state.body.photos[2]);
     state.body.photos = []; return { quiet, seen, note:/arms further out/.test(note) }; });
   ok(tr.quiet >= 36 && tr.seen >= 30 && tr.note, 'photo trend: quiet without change, catches a real one; setup note', JSON.stringify(tr));
+  // tape sites: height parsing, a tape-only day survives, lb/kg converts tape too, save checks typos, WHtR, fits note
+  const tp = await p.evaluate(() => { const H = v => { state.goals.height = v; return heightCm(); };
+    const hs = [H(`5'11"`), H('5 ft 11 in'), H('5-11'), H('71 in'), H('180 cm'), H('1.80 m'), H('180'), H('tall')];
+    state.units = 'lb'; state.unitOrig = {}; state.sessions = []; state.days = []; state.active = null; state.body.log = {}; const k = dkey(Date.now());
+    state.tab = 'body'; render(); const set = (f, v) => { document.getElementById('tp-' + f).value = v; };
+    set('arm', '160'); document.getElementById('tapeSave').click(); const refused = blog()[k] == null;
+    set('arm', '15.5'); set('calf', '15'); document.getElementById('tapeSave').click(); const saved = { ...(blog()[k] || {}) };
+    tidy(k); const kept = !!blog()[k];
+    state.goals.height = `5'11"`; state.body.log[k].waist = 33; const wh = +whtr().toFixed(3);
+    convertUnits('kg'); state.units = 'kg'; const cm = { ...blog()[k] }; convertUnits('lb'); state.units = 'lb';
+    // fits: weight clearly up, waist steady over 4 weeks -> "fits gaining mostly muscle"
+    state.phase = 'gain'; state.body.log = {}; for (let d = 0; d < 28; d++) state.body.log[dkey(addDays(Date.now(), -d))] = { w:+(180 * (1 - .006 * d / 7)).toFixed(1) };
+    state.body.log[dkey(addDays(Date.now(), -30))] = { waist:33 }; state.body.log[k].waist = 33.2; const fits = fitsNote();
+    state.body.log = {}; state.phase = undefined; state.goals.height = ''; return { hs, refused, saved, kept, wh, cm, fits }; });
+  ok(JSON.stringify(tp.hs) === '[180,180,180,180,180,180,180,null]' && tp.refused && tp.saved.arm === 15.5 && tp.saved.calf === 15 && tp.kept && tp.wh === .466 && tp.cm.arm === 39.4 && /mostly muscle/.test(tp.fits), 'tape sites, height, WHtR, fits note', JSON.stringify(tp));
   ok(errs.length === 0, 'no page errors', errs.join('\n'));
   // damaged saved data: rescue screen, and the stored data is not overwritten
   for (const [name, raw] of [['unreadable', '{"v":1,"units":"lb","days":[],"sessions":[{"id":"a"'], ['wrong-typed', JSON.stringify({ v:1, units:'lb', days:[], sessions:[{ id:'s', dayId:'d', start:1, end:2, items:[] }], body:'oops', goals:5 })]]){

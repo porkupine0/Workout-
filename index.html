@@ -726,7 +726,8 @@ function convertUnits(to){
   const item = (it, p) => { (it.sets || []).forEach((q, k) => cv(q, "w", `${p}.${k}`, .5)); if (it.target){ cv(it.target, "w", p + ".t", .5); if (it.target.from != null) cv(it.target, "from", p + ".f", .5); } if (it.back && it.back.w !== "") cv(it.back, "w", p + ".b", .5); };
   state.sessions.forEach(x => x.items.forEach((it, i) => item(it, `s.${x.id}.${i}`))); if (state.active) state.active.items.forEach((it, i) => item(it, `a.${state.active.id}.${i}`));
   ["base","steps"].forEach(k => Object.keys(state[k] || {}).forEach(id => cv(state[k], id, `${k}.${id}`, .25)));
-  Object.entries((state.body && state.body.log) || {}).forEach(([d, e]) => { cv(e, "w", "bw." + d, .1); cv(e, "waist", "wa." + d, .1, to === "kg" ? 2.54 : 1 / 2.54); });
+  Object.entries((state.body && state.body.log) || {}).forEach(([d, e]) => { cv(e, "w", "bw." + d, .1); cv(e, "waist", "wa." + d, .1, to === "kg" ? 2.54 : 1 / 2.54);
+    TAPE.forEach(([f]) => cv(e, f, `tp.${f}.${d}`, .1, to === "kg" ? 2.54 : 1 / 2.54)); });
 }
 function migrate(){
   cleanState(state);
@@ -1235,7 +1236,7 @@ const blog = () => state.body.log;
 const LB = 2.20462;
 const lenUnit = () => U() === "kg" ? "cm" : "in";
 const entry = k => blog()[k] || (blog()[k] = {});
-function tidy(k){ const e = blog()[k]; if (e && e.w == null && e.waist == null && !e.p) delete blog()[k]; }
+function tidy(k){ const e = blog()[k]; if (e && e.w == null && e.waist == null && !e.p && !TAPE.some(([f]) => e[f] != null)) delete blog()[k]; }
 const bwKey = () => { const t = dkey(Date.now()); return bwDay && bwDay < t ? bwDay : t; };
 const daysAgo = k => Math.round((dayOf(dkey(Date.now())) - dayOf(k)) / dayMs);
 function latest(field){ const k = Object.keys(blog()).filter(k => blog()[k][field] != null).sort().pop(); return k ? { k, v:blog()[k][field] } : null; }
@@ -1284,6 +1285,52 @@ function weightAdvice(){
   if (p < lo) return { kind:"", txt:`You're changing ${rate}, under the ${f(lo)} to ${f(hi)} target, so muscle comes slower. Eat about 200 calories more a day.` };
   if (p > hi) return { kind:"down", txt:`You're gaining ${rate}, faster than ${f(hi)}. Past that, most of the extra is fat: eat about 200 calories less a day.` };
   return { kind:"up", txt:`On target: ${rate}, inside the ${f(lo)} to ${f(hi)} range.` };
+}
+// Monthly tape sites, each with one way to measure it (the label says how), plus the plausible range in cm.
+const TAPE = [["arm", "Upper arm, flexed (right)", 15, 70], ["chest", "Chest, relaxed", 60, 180], ["thigh", "Mid-thigh, relaxed (right)", 30, 110], ["calf", "Calf, relaxed (right)", 20, 70]];
+// Height from the free-text goal: 5'11", 5' 11, 5ft 11in, 5-11, 71 in, 180 cm, 1.80 m. null when it can't be read.
+function heightCm(){
+  const t = String((state.goals || {}).height || "").toLowerCase().replace(/[“”″]/g, '"').replace(/[‘’′]/g, "'").trim(); let m;
+  if ((m = t.match(/^(\d)\s*(?:'|ft|feet|-)\s*(\d{1,2}(?:\.\d)?)?\s*(?:"|in|inches)?$/))) return Math.round((+m[1] * 12 + +(m[2] || 0)) * 2.54);
+  if ((m = t.match(/^(\d{2}(?:\.\d)?)\s*(?:"|in|inches)$/))) return Math.round(+m[1] * 2.54);
+  if ((m = t.match(/^(1[.,]\d{1,2})\s*m$/))) return Math.round(+m[1].replace(",", ".") * 100);
+  if ((m = t.match(/^(\d{3}(?:\.\d)?)\s*(?:cm)?$/))) return Math.round(+m[1]);
+  return null;
+}
+const toCm = v => lenUnit() === "cm" ? v : v * 2.54;
+// Waist ÷ height from the tape: under 0.5 is the usual healthy line.
+function whtr(){ const h = heightCm(), w = week7("waist", Date.now()) || (latest("waist") || {}).v; return h && w ? toCm(w) / h : null; }
+function tapeGuide(){
+  return `<details class="why" id="tapeGuide"><summary>📏 How to measure with a tape</summary>
+    <ul class="playbook" style="margin:0;padding-left:20px;font-size:0.824rem">
+      <li><b>The tape:</b> a soft, non-stretch sewing or body tape (cm and inches). A spring-lock or self-retracting body tape (like a "MyoTape") keeps the pull the same each time.</li>
+      <li><b>Every time:</b> morning, after the bathroom, before eating, drinking or training. Bare skin, standing tall and relaxed, feet hip-width apart. Tape level all the way round (use a mirror) and snug on the skin without pressing in. Read it at the end of a normal breath out. Measure twice; if they differ by more than 0.5 cm (¼ in), measure a third time and log the middle one.</li>
+      <li><b>Waist:</b> level with your belly button. Don't suck in and don't push your stomach out: let it sit naturally, breathe out normally, and read the tape before you breathe in again.</li>
+      <li><b>Upper arm, flexed (right):</b> raise the arm to shoulder height in front of you, bend the elbow to about 90° and squeeze the biceps hard. Tape around the highest point of the biceps, square to the arm.</li>
+      <li><b>Chest, relaxed:</b> arms down and relaxed, tape across the nipples and under the armpits, level across your back (a mirror helps, or a helper). Read at the end of a normal breath out; don't flex or puff the chest.</li>
+      <li><b>Mid-thigh, relaxed (right):</b> weight on both feet, thigh relaxed. Halfway between the crease at the top of the thigh and the top of the kneecap; mark the spot the first time (e.g. measure up from the kneecap) and use the same distance every time.</li>
+      <li><b>Calf, relaxed (right):</b> standing with weight on both feet, calf relaxed, at the widest point (slide the tape up and down to find it).</li>
+      <li><b>Same side, same spot, same time:</b> a change smaller than about 0.5 cm (¼ in) on arms and calves, or 1 cm (½ in) on the waist, chest and thighs, is within a tape's normal error.</li>
+    </ul></details>`;
+}
+// Over about 4–8 weeks: what weight, waist, arm tape and photos together fit with. Each part speaks only when its own
+// change clears its noise, and it never puts a number of pounds or kilograms on muscle or fat.
+function fitsNote(){
+  const t = weightTrend(), adv = weightAdvice(), sure = t && t.age <= 4 && !/too close/i.test(adv.txt);
+  const wt = sure ? (t.pct > .15 ? 1 : t.pct < -.15 ? -1 : 0) : null;
+  const chg = (f, days, small) => { const L = Object.keys(blog()).filter(k => blog()[k][f] != null).sort(); if (L.length < 2) return null;
+    const last = L[L.length - 1], prev = L.filter(k => dayOf(last) - dayOf(k) >= days * dayMs).pop(); if (!prev) return null;
+    const d = toCm(blog()[last][f]) - toCm(blog()[prev][f]); return Math.abs(d) < small ? 0 : Math.sign(d); };
+  const waist = chg("waist", 28, 1.2), arm = chg("arm", 28, .6);
+  const T = photoTrend("front"), sh = T && T.find(r => r.k === "shoulder"), photoUp = sh && sh.real && sh.total > 0;
+  const muscle = arm === 1 || photoUp, muscleDown = arm === -1;
+  if (wt == null || waist == null) return "";
+  if (wt === 1 && waist === 0) return `Weight up, waist steady${muscle ? ", arms or shoulders up" : ""}: that fits gaining mostly muscle.`;
+  if (wt === 1 && waist === 1) return "Weight and waist both up: that fits some of the gain being fat. If you want it leaner, slow the gain a little.";
+  if (wt === 0 && waist === -1) return `Weight steady, waist down${muscle ? ", arms or shoulders up" : ""}: that fits recomposition, losing fat while keeping or building muscle.`;
+  if (wt === -1 && waist === -1 && !muscleDown) return "Weight and waist both down: that fits losing fat.";
+  if (wt === -1 && muscleDown && waist !== -1) return "Weight and arm measurements down with a steady waist: that fits losing some muscle. Check protein and that your lifts are holding.";
+  return "";
 }
 function waistNote(){
   const now = week7("waist", Date.now()), then = week7("waist", addDays(Date.now(), -28)); if (now == null || then == null) return "";
@@ -1567,7 +1614,17 @@ function bodyView(){
     <div class="wlist">${logged.map(x => { const v = blog()[x]; return `<div class="wrow"><span class="grow">${fmtDate(dayOf(x))}</span><span class="num"><b>${v.w != null ? v.w : "–"}</b> ${v.w != null ? U() : ""}${v.waist != null ? ` · ${v.waist} ${lenUnit()}` : ""}</span>
       <button class="small" data-act="bwEdit" data-k="${x}">Edit</button><button class="small danger" data-act="bwDel" data-k="${x}">${confirmKey === "bwdel:" + x ? "Tap again" : "✕"}</button></div>`; }).join("")}</div>
     <p class="hint">Each weigh-in counts on the day it's dated, so gaps don't skew your averages or trend.</p></div>` : "";
-  return todayCard + trend + history + photosPanel();
+  const k2 = bwKey(), te = blog()[k2] || {}, wh = whtr(), hc = heightCm();
+  const tape = `<div class="panel" id="tapePanel"><div class="row"><h3 class="grow">Tape measurements</h3><span class="hint">${k2 === dkey(Date.now()) ? "today" : esc(fmtDate(dayOf(k2)))} · ${lenUnit()}</span></div>
+    <p class="hint" style="margin:0">Once a month, the same morning as your photos. Waist goes in above, weekly.</p>
+    ${TAPE.map(([f, l]) => { const last = latest(f); return `<div class="row" style="gap:8px;align-items:center"><label class="grow" for="tp-${f}">${l}${last ? `<br><span class="hint" style="font-size:0.735rem">last ${last.v} on ${esc(fmtDate(dayOf(last.k)))}</span>` : ""}</label><input type="text" inputmode="decimal" id="tp-${f}" value="${te[f] != null ? te[f] : ""}" placeholder="${lenUnit()}" autocomplete="off" style="max-width:110px"></div>`; }).join("")}
+    <button data-act="tapeSave" id="tapeSave">Save tape measurements</button>
+    ${wh ? `<p class="${wh < .5 ? "ok" : "err"}" style="margin:0">Waist ÷ height: <b>${wh.toFixed(2)}</b>. ${wh < .5 ? "Under 0.5, the usual healthy line." : "At or over 0.5, the line where health risk starts to rise. Worth bringing down, and worth a word with your doctor if it keeps climbing."}</p>` : (week7("waist", Date.now()) || latest("waist")) && !hc ? `<p class="hint" style="margin:0">Add your height in Program → Goals (e.g. 5'11" or 180 cm) to see waist ÷ height.</p>` : ""}
+    ${fitsNote() ? `<p class="hint" style="margin:0">🧭 ${esc(fitsNote())}</p>` : ""}
+    ${tapeGuide()}
+    ${(() => { const L = Object.keys(blog()).filter(x => TAPE.some(([f]) => blog()[x][f] != null)).sort().reverse().slice(0, 8); return L.length ? `<div class="tablewrap"><table class="st"><thead><tr><th style="text-align:left">Date</th>${TAPE.map(([f]) => `<th>${f}</th>`).join("")}<th></th></tr></thead><tbody>${L.map(x => `<tr><td style="text-align:left">${esc(fmtDate(dayOf(x)))}</td>${TAPE.map(([f]) => `<td>${blog()[x][f] != null ? blog()[x][f] : "–"}</td>`).join("")}<td><button class="small danger" data-act="tapeDel" data-k="${x}">${confirmKey === "tapedel:" + x ? "Tap again" : "✕"}</button></td></tr>`).join("")}</tbody></table></div>` : ""; })()}
+  </div>`;
+  return todayCard + trend + tape + history + photosPanel();
 }
 // how much your photos vary with nothing changed, per pose
 function calibBox(){
@@ -1586,7 +1643,7 @@ function photosPanel(){
       return p ? `<div class="pslot"><img class="pth" data-pid="${p.id}" alt="${l} photo" ${pcache[p.id] && pcache[p.id].thumb ? `src="${pcache[p.id].thumb}"` : ""} data-act="phView" data-id="${p.id}"><span>${l} ✓${p.a ? ` · ${shotsOf(p).length}/4` : ""}</span>
         ${p.a ? `<label for="px-${pose}" class="hint" style="font-size:0.735rem;cursor:pointer;text-decoration:underline">＋ another shot</label><input type="file" accept="image/*" multiple id="px-${pose}" data-extra="${p.id}" hidden>` : ""}</div>`
         : `<div class="pslot"><label for="ph-${pose}">＋ ${l}</label><input type="file" accept="image/*" id="ph-${pose}" data-photo="${pose}"><span>${l}</span></div>`; }).join("")}</div>`;
-  const shootBox = showShoot ? `<ul class="playbook" style="margin:0;padding-left:20px"><li>Same spot, same light and same time (morning) every time. Even light from the front.</li><li>Phone upright at chest height, about 2 m (6 ft) away, on a timer. Whole body head to knees in frame.</li><li>Fitted clothes or swimwear, relaxed, arms slightly away from your sides.</li></ul>
+  const shootBox = showShoot ? `<ul class="playbook" style="margin:0;padding-left:20px"><li>Morning, after the bathroom, before eating, drinking or training. Same spot, same light, plain wall behind you, even light from the front.</li><li>Phone vertical on a stand (not tipped forward or back) at chest height, about 2 m (6 ft) away, 1× or 2× lens (never 0.5×), on a timer. Head to knees in frame.</li><li>The same fitted shorts or swimwear every time. Relaxed, not flexed; stand tall, feet hip-width apart on a mark on the floor, arms hanging about 15–20° out from your sides.</li><li>Take each shot at the end of a normal breath out: don't suck in or push out. Take 3–4 shots per pose (＋ another shot), stepping out of frame and back between them.</li></ul>
     ${slots}<p class="hint">Photos stay on this phone, and so does the analysis. Nothing is uploaded.</p>${calibBox()}` : `<button data-act="phShoot" id="phShoot">📸 Take this month's photos</button>`;
   const latestSet = list.length ? list[0][1] : [];
   const results = latestSet.length ? `<div style="display:flex;flex-direction:column;gap:14px">${latestSet.map(p => `<div class="rvx"><div class="row"><b class="grow">${POSES[p.pose]} · ${new Date(p.at).toLocaleDateString(undefined,{month:"short",day:"numeric"})}</b><button class="small ghost" data-act="phView" data-id="${p.id}" id="phv-${p.id}">View</button></div>
@@ -4093,6 +4150,15 @@ document.addEventListener("click", e => {
         confirmKey = null; }
       entry(k)[isW ? "w" : "waist"] = Math.round(v * 10) / 10; save(); askPersist(); showToast(isW ? `Saved ${Math.round(v * 10) / 10} ${U()}${when}.` : `Saved waist ${Math.round(v * 10) / 10} ${lenUnit()}${when}.`); bwDay = null; render(); break; }
     case "bwDay": bwDay = b.dataset.v || null; render(); break;
+    case "tapeSave": { const k = bwKey(), vals = {}, bad = [], far = [];
+      TAPE.forEach(([f, l, lo, hi]) => { const el = document.getElementById("tp-" + f), v = num(el ? el.value : ""); if (v == null || v <= 0) return; const cm = toCm(v);
+        if (cm < lo || cm > hi) bad.push(l.split(",")[0]); else { const p = latest(f); if (p && p.k !== k && Math.abs(v - p.v) / p.v > .1) far.push(l.split(",")[0]); vals[f] = Math.round(v * 10) / 10; } });
+      if (bad.length){ noteToast(`${bad.join(", ")} doesn't look right. Check the number and that it's in ${lenUnit()}.`); break; }
+      if (!Object.keys(vals).length){ noteToast("Enter at least one measurement."); break; }
+      const sig = "tape:" + JSON.stringify(vals);
+      if (far.length && confirmKey !== sig){ confirmKey = sig; clearTimeout(confirmTimer); confirmTimer = setTimeout(() => { confirmKey = null; }, 8000); noteToast(`${far.join(", ")} changed by more than 10% since last time. Tap Save again if it's right.`); break; }
+      confirmKey = null; Object.assign(entry(k), vals); save(); askPersist(); showToast(`Saved ${plural(Object.keys(vals).length, "measurement")}.`); render(); break; }
+    case "tapeDel": { const k = b.dataset.k; confirmThen("tapedel:" + k, () => { const e2 = blog()[k]; if (e2){ TAPE.forEach(([f]) => delete e2[f]); tidy(k); } save(); showToast(`Removed the tape measurements for ${fmtDate(dayOf(k))}.`); render(); }); break; }
     case "bwEdit": { const k = b.dataset.k; bwDay = k === dkey(Date.now()) ? null : k; render(); window.scrollTo({ top:0, behavior:"smooth" }); setTimeout(() => { const el = document.getElementById("bwIn"); if (el) el.focus(); }, 300); break; }
     case "bwDel": { const k = b.dataset.k; confirmThen("bwdel:" + k, () => { const e2 = blog()[k]; if (e2){ delete e2.w; delete e2.waist; tidy(k); } if (bwDay === k) bwDay = null; save(); showToast(`Removed the weigh-in for ${fmtDate(dayOf(k))}.`); render(); }); break; }
     case "pAdd": { const k = dkey(Date.now()), e2 = entry(k); e2.p = Math.max(0, (e2.p || 0) + (+b.dataset.v)); tidy(k); save(); render(); break; }
