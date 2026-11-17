@@ -1344,8 +1344,8 @@ async function addPhoto(file, pose){
 }
 // the analysis runs on the phone (body-scan.js and its pose model, kept for offline use); nothing is uploaded
 // bump when body-scan.js measures differently: photos measured by an older version are measured again on this phone
-const SCAN_V = 2;
-const APP_VER = "2026.11.16";   // shown in Settings: bump with each release so you can tell which version the phone has
+const SCAN_V = 3;   // 3: belly depth front-of-belly to lower back (glutes no longer count), median of 5 looks for the joints
+const APP_VER = "2026.11.17";   // shown in Settings: bump with each release so you can tell which version the phone has
 const busy = new Set();
 let scanMod = null;
 function scanner(){ return scanMod || (scanMod = import("./body-scan.js").then(async m => { await m.ready(); return m; }).catch(e => { scanMod = null; throw e; })); }
@@ -1364,11 +1364,11 @@ async function analyzePhoto(p){
 function analyzeWaiting(retry){ if (navigator.onLine === false) return; const p = photos().find(q => (!q.a || (q.a.v || 1) < SCAN_V) && !busy.has(q.id) && (retry || !q.err)); if (p) analyzePhoto(p).then(() => setTimeout(() => analyzeWaiting(false), 300)); }
 const METRICS = {
   front:[["taper","Shoulders ÷ waist", 1], ["shoulder","Shoulder width", 1], ["waist","Waist width", -1], ["hip","Hip width", 0]],
-  back:[["taper","Back ÷ waist", 1], ["shoulder","Upper-back width", 1], ["waist","Waist width", -1], ["hip","Hip width", 0]],
-  side:[["belly","Belly depth", -1], ["chest","Chest depth", 1]],
+  back:[["taper","Shoulders ÷ waist (back)", 1], ["shoulder","Shoulder width (back)", 1], ["waist","Waist width", -1], ["hip","Hip width", 0]],
+  side:[["belly","Belly depth", -1], ["chest","Chest depth", 0]],
 };
 const LINE_LABEL = { shoulder:"shoulders", waist:"waist", hip:"hips", chest:"chest", belly:"belly" };
-const FLAG_TXT = { "arms-out":"Your arms were held well away from your body, which widens the shoulder reading. Keep them just slightly out.", "arms-touching":"Your arms touched your sides, so the waist wasn't measured. Hold them slightly out next time.", turned:"You look a little turned. Face the camera squarely (or exactly side-on) for a fair comparison.", tilted:"The photo is tilted. Keep the phone upright at chest height.", "low-confidence":"The outline wasn't clear. Use even light and a plain background.", "loose-clothing?":"Loose clothes can hide your shape. Wear the same fitted clothes each time." };
+const FLAG_TXT = { "arms-out":"Your arms were held well away from your body, which widens the shoulder reading. Keep them just slightly out.", "arms-touching":"Your arms touched your sides, so the waist wasn't measured. Hold them slightly out next time.", turned:"You look a little turned. Face the camera squarely (or exactly side-on) for a fair comparison.", tilted:"The photo is tilted sideways. Keep the phone vertical on a stand, in the same spot each time: tipping it forward or back changes the readings more than a sideways tilt does.", "hip-unclear":"A hand or arm was at your hips, so the hip width wasn't measured. Let your arms hang slightly out from your sides.", "low-confidence":"The outline wasn't clear. Use even light and a plain background.", "loose-clothing?":"Loose clothes can hide your shape. Wear the same fitted clothes each time." };
 const REASON_TXT = { "no-person":"No person found in this photo.", "several-people":"More than one person is in the photo, so it wasn't measured.", "cut-off":"Your shoulders and hips need to be in the photo. Step back so you're in frame from head to knees.", unclear:"Couldn't get a clear outline. Stand square to the camera (or exactly side-on), arms slightly out, in even light.", unsupported:"This phone can't run the photo analysis." };
 // the photo a new one is compared with: the latest earlier one of that pose that measured cleanly (no pose or clothing
 // warnings); a flagged one only when there's no clean one
@@ -1414,9 +1414,9 @@ function photoSummary(p){
   if (p.pose === "side"){ const b = ch("belly"), c = ch("chest");
     if (b != null && b <= -T("belly")) out.push(`belly depth down ${pct(b).slice(1)}`); if (b != null && b >= T("belly") + .01) out.push(`belly depth up ${pct(b).slice(1)}`); if (c != null && c >= T("chest")) out.push(`chest depth up ${pct(c).slice(1)}`);
   } else { const t = ch("taper"), w = ch("waist"), s = ch("shoulder");
-    if (t != null && t >= T("taper")) out.push(`${p.pose === "back" ? "back-to-waist" : "shoulder-to-waist"} ratio up ${pct(t).slice(1)}`);
+    if (t != null && t >= T("taper")) out.push(`shoulder-to-waist ratio up ${pct(t).slice(1)}`);
     if (w != null && w <= -T("waist")) out.push(`waist ${pct(w).slice(1)} narrower`); if (w != null && w >= T("waist") + .01) out.push(`waist ${pct(w).slice(1)} wider`);
-    if (s != null && s >= T("shoulder")) out.push(`${p.pose === "back" ? "upper back" : "shoulders"} ${pct(s).slice(1)} broader`);
+    if (s != null && s >= T("shoulder")) out.push(`shoulders ${pct(s).slice(1)} broader`);
   }
   const nz = Math.max(...(METRICS[p.pose] || []).map(([k]) => T(k)));
   return out.length ? `Since ${since}: ${out.slice(0, 2).join(", ")}.` : `About the same as ${since}. Changes under ${Math.round(nz * 100)}% are within ${photoSD(p.pose, "waist") || photoSD(p.pose, "belly") ? "your measured" : "a photo's"} noise.`;

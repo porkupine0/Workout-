@@ -17,7 +17,10 @@ const LM = { nose: 0, ls: 11, rs: 12, le: 13, re: 14, lw: 15, rw: 16, li: 19, ri
 const PUBLIC_LM = ['ls', 'rs', 'lh', 'rh', 'nose', 'lk', 'rk', 'la', 'ra', 'le', 're', 'lw', 'rw'];
 // Measuring bands, in torso lengths below the shoulder line (0 = shoulders, 1 = hips). The shoulder band stays at
 // the joints: lower down, arms held away from the body widen the outline (A-pose added ~25% at 0.12, ~5% here).
-const BAND = { shoulder: [0, .05], waist: [.5, .92], hip: [.9, 1.15], chest: [.22, .28], belly: [.55, 1] };
+// Belly depth (side photos) runs from the most forward point of the belly to the deepest point of the lower-back curve,
+// which can sit at different heights: measured straight across, lines low in the band ran into the buttocks, so glute
+// growth read as belly growth.
+const BAND = { shoulder: [0, .05], waist: [.5, .92], hip: [.9, 1.15], chest: [.22, .28], belly: [.55, .9], lumbar: [.45, .8] };
 const SIDE_SEP = .25;      // shoulder joints closer than this (x torso length) across the body: a side photo
 const SQUARE_SEP = .55;    // further apart than this: clearly facing (or facing away from) the camera
 const UNSUPPORTED = "This browser can't run the photo analysis. It needs WebAssembly SIMD: iOS 16.4 or newer, or a current Chrome, Edge, Firefox or Safari.";
@@ -79,6 +82,9 @@ export async function analyze(source, pose) {
   if (conf < .75 || F.T < 80) res.flags.push('low-confidence');
   return {
     ok: true, pose: final, poseGuess, lm, torso: round(F.T / H),
+    // how the photo was taken, for comparing setups between months: upper-arm angle from the torso (degrees) and how
+    // square-on the shoulders are (shoulder-joint spacing across the body, in torso lengths)
+    setup: { arm: Math.round(armsOut(F, P)), sep: round(Math.abs(sep), 3) },
     m: res.m,
     lines: Object.fromEntries(Object.entries(res.lines).map(([k, [x1, y1, x2, y2]]) =>
       [k, [x1 + seg.x0, y1 + seg.y0, x2 + seg.x0, y2 + seg.y0].map((v, i) => round(v / (i % 2 ? H : W)))])),
@@ -122,22 +128,34 @@ function findPeople(landmarker, img) {
 }
 
 // A second, zoomed-in look at the main person: the model places joints more consistently when the body fills its
-// view, so the readings don't drift with how far from the camera you stood. Returns null if the zoomed look fails.
+// view, so the readings don't drift with how far from the camera you stood. It looks five times, through slightly
+// shifted and scaled crops, and keeps the median of each joint: torso length scales every width and places the
+// measuring bands, and a single look can put the hips a few percent off. Returns null if no look agrees.
+const LOOKS = [[0, 0, 1], [.05, 0, 1], [-.05, 0, 1], [0, .05, 1.04], [0, -.04, .96]];
 function refine(landmarker, img, P) {
   const pts = Object.keys(LM).map(k => P[k]), xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
-  const x0 = clamp(Math.min(...xs) - .7 * P.T, 0, img.width), x1 = clamp(Math.max(...xs) + .7 * P.T, 0, img.width);
-  const y0 = clamp(Math.min(...ys) - .8 * P.T, 0, img.height), y1 = clamp(Math.max(...ys) + .4 * P.T, 0, img.height);
-  const k = 900 / Math.max(x1 - x0, y1 - y0), c = canvas('zoom', Math.round((x1 - x0) * k), Math.round((y1 - y0) * k));
-  const g = c.getContext('2d'); g.imageSmoothingQuality = 'high';
-  g.drawImage(img, x0, y0, x1 - x0, y1 - y0, 0, 0, c.width, c.height);
-  const Q = findPeople(landmarker, c)[0];
-  if (!Q) return null;
-  const R = {};
-  for (const key of Object.keys(LM)) R[key] = [Q[key][0] / k + x0, Q[key][1] / k + y0, Q[key][2]];
-  R.T = dist(mid(R.ls, R.rs), mid(R.lh, R.rh));
-  // keep it only if it agrees with the first look: same torso, about the same length, shoulders above the hips
   const up = b => mid(b.lh, b.rh)[1] - mid(b.ls, b.rs)[1] > .5 * b.T;
-  if (!up(R) || Math.abs(R.T / P.T - 1) > .25 || dist(torsoCenter(R), torsoCenter(P)) > .3 * P.T) return null;
+  const looks = [];
+  for (const [ox, oy, sc] of LOOKS) {
+    const cx = (Math.min(...xs) + Math.max(...xs)) / 2 + ox * P.T, cy = (Math.min(...ys) - .8 * P.T + Math.max(...ys) + .4 * P.T) / 2 + oy * P.T;
+    const hw = ((Math.max(...xs) - Math.min(...xs)) / 2 + .7 * P.T) * sc, hh = ((Math.max(...ys) - Math.min(...ys)) / 2 + .6 * P.T) * sc;
+    const x0 = clamp(cx - hw, 0, img.width), x1 = clamp(cx + hw, 0, img.width), y0 = clamp(cy - hh, 0, img.height), y1 = clamp(cy + hh, 0, img.height);
+    const k = 900 / Math.max(x1 - x0, y1 - y0), c = canvas('zoom', Math.round((x1 - x0) * k), Math.round((y1 - y0) * k));
+    const g = c.getContext('2d'); g.imageSmoothingQuality = 'high';
+    g.drawImage(img, x0, y0, x1 - x0, y1 - y0, 0, 0, c.width, c.height);
+    const Q = findPeople(landmarker, c)[0];
+    if (!Q) continue;
+    const R = {};
+    for (const key of Object.keys(LM)) R[key] = [Q[key][0] / k + x0, Q[key][1] / k + y0, Q[key][2]];
+    R.T = dist(mid(R.ls, R.rs), mid(R.lh, R.rh));
+    // keep a look only if it agrees with the first one: same torso, about the same length, shoulders above the hips
+    if (up(R) && Math.abs(R.T / P.T - 1) <= .25 && dist(torsoCenter(R), torsoCenter(P)) <= .3 * P.T) looks.push(R);
+  }
+  if (!looks.length) return null;
+  const med = v => { const a = v.slice().sort((p, q) => p - q), n = a.length; return n % 2 ? a[n >> 1] : (a[n / 2 - 1] + a[n / 2]) / 2; };
+  const R = {};
+  for (const key of Object.keys(LM)) R[key] = [0, 1, 2].map(i => med(looks.map(L => L[key][i])));
+  R.T = dist(mid(R.ls, R.rs), mid(R.lh, R.rh));
   return R;
 }
 
@@ -239,7 +257,7 @@ export function measure(mask, width, height, lmPx, pose) {
   const band = name => scan(F, get, width, height, arms, BAND[name], side);
   const m = {}, lines = {}, flags = [];
   const take = (name, pick, mode) => {
-    if (pick.arms) flags.push('arms-touching');
+    if (pick.arms) flags.push(name === 'hip' ? 'hip-unclear' : 'arms-touching');   // a hand at the hip only costs the hip reading
     if (!pick.line) return null;
     m[name] = round(pick.w / F.T);
     lines[name] = [...F.at(pick.line.t, pick.line.l), ...F.at(pick.line.t, pick.line.r)].map(v => round(v, 1));
@@ -247,7 +265,15 @@ export function measure(mask, width, height, lmPx, pose) {
   };
   if (side) {
     take('chest', choose(band('chest'), 'median', F.T));
-    take('belly', choose(band('belly'), 'max', F.T));
+    const fs = lmPx.nose ? Math.sign(F.ts(lmPx.nose)[1]) : 0;   // which way the person faces: +n or -n
+    const B = band('belly'), Lb = band('lumbar'), okB = B.filter(x => x && !x.arm), okL = Lb.filter(x => x && !x.arm);
+    if (fs && okB.length >= B.length * .5 && okL.length >= Lb.length * .5) {
+      const front = x => fs > 0 ? x.r : -x.l, back = x => fs > 0 ? -x.l : x.r, top3 = (a, f) => a.map(f).sort((p, q) => q - p).slice(0, 3);
+      const fr = okB.slice().sort((p, q) => front(q) - front(p)), fMax = top3(okB, front).reduce((a, b) => a + b) / Math.min(3, okB.length);
+      const bMin = -top3(okL, x => -back(x)).reduce((a, b) => a + b) / Math.min(3, okL.length), t = fr[0].t;
+      m.belly = round((fMax + bMin) / F.T);
+      lines.belly = [...F.at(t, -fs * bMin), ...F.at(t, fs * fMax)].map(v => round(v, 1));
+    } else take('belly', choose(B, 'max', F.T));
   } else {
     const sh = take('shoulder', choose(band('shoulder'), 'max', F.T, true));
     take('waist', choose(band('waist'), 'min', F.T));

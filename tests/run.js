@@ -182,7 +182,7 @@ const ok = (cond, name, detail) => { if (cond){ passes++; } else { fails++; cons
     state.body.photos.push(base, flagged, now); const before = photoSummary(now), prev = prevOf(now).id, floor0 = photoTh('front', 'taper');
     let seed = 123456789; const rnd = () => { seed = (seed * 48271) % 2147483647; return seed / 2147483647; }, gauss = () => { let u = 0; while (!u) u = rnd(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rnd()); };
     const shot = () => ({ taper:1.5 * (1 + .02 * gauss()), waist:.8 * (1 + .02 * gauss()), shoulder:1.2 * (1 + .02 * gauss()), hip:.9 * (1 + .02 * gauss()) });
-    state.body.prep = { front:{ sessions:[0, 1, 2].map(k => ({ at:k, shots:[shot(), shot(), shot(), shot()] })) } };
+    state.body.prep = { front:{ sessions:[0, 1, 2].map(k => ({ at:k, v:SCAN_V, shots:[shot(), shot(), shot(), shot()] })) } };
     const th = photoTh('front', 'waist'); let calls = 0; for (let i = 0; i < 400; i++){ const a = shot().waist, b = shot().waist; if (Math.abs(a - b) / b >= th) calls++; }
     const after = photoSummary(now); state.body.photos = []; state.body.prep = {}; return { prev, before, floor0, th:+th.toFixed(3), falseRate:calls / 400, after }; });
   ok(pc.prev === 'p1' && /ratio up/.test(pc.before) && pc.floor0 === .02 && pc.th > .04 && pc.th < .08 && pc.falseRate < .1 && !/ratio up/.test(pc.after), 'photo repeatability: quiet when nothing changed; flagged photos skipped', JSON.stringify(pc));
