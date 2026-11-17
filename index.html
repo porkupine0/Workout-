@@ -1441,7 +1441,45 @@ function photoSummary(p){
   const nz = Math.max(...(METRICS[p.pose] || []).map(([k]) => T(k)));
   return out.length ? `Since ${since}: ${out.slice(0, 2).join(", ")}.` : `About the same as ${since}. Changes under ${Math.round(nz * 100)}% are within ${photoSD(p.pose, "waist") || photoSD(p.pose, "belly") ? "your measured" : "a photo's"} noise.`;
 }
-function photoNotes(p){ const a = p.a; return a && a.ok ? (a.flags || []).map(f => `<p class="why">⚠️ ${esc(FLAG_TXT[f] || f.replace(/-/g, " "))}</p>`).join("") : ""; }
+function photoNotes(p){ const a = p.a; return a && a.ok ? (a.flags || []).map(f => `<p class="why">⚠️ ${esc(FLAG_TXT[f] || f.replace(/-/g, " "))}</p>`).join("") + setupNote(p) : ""; }
+// Setup check: how this photo was taken against your usual (the median of your earlier clean photos of the pose):
+// arm angle, how much of the frame you fill, and how square-on you stood. Kept apart from the warnings above, so a
+// different setup doesn't stop the photo being compared; it says why a change might not be real.
+function setupNote(p){
+  const s = p.a && p.a.setup; if (!s) return "";
+  const ref = photos().filter(q => q.pose === p.pose && q.at < p.at && cleanShot(q.a) && q.a.v === p.a.v && q.a.setup);
+  if (ref.length < 2) return "";
+  const med = f => { const v = ref.map(f).filter(x => x != null).sort((a, b) => a - b); return v.length ? v[v.length >> 1] : null; };
+  const arm = med(q => q.a.setup.arm), sep = med(q => q.a.setup.sep), size = med(q => q.a.torso), out = [];
+  if (arm != null && Math.abs(s.arm - arm) > 10) out.push(`arms ${s.arm > arm ? "further out" : "closer in"} than usual (${s.arm}° vs ${arm}°)`);
+  if (size && p.a.torso && Math.abs(p.a.torso / size - 1) > .1) out.push(`you fill ${p.a.torso > size ? "more" : "less"} of the frame than usual, so the phone was ${p.a.torso > size ? "closer" : "farther"} or at another height`);
+  if (p.pose !== "side" && sep != null && Math.abs(s.sep - sep) > .08) out.push(`turned a little ${s.sep < sep ? "more" : "less"} than usual`);
+  return out.length ? `<p class="why">📐 Setup differs from your usual photos: ${out.join("; ")}. Changes this month may partly be the setup; retake if you can.</p>` : "";
+}
+// Trend across every check-in of a pose (same measuring version): a robust straight line (median of all pairwise
+// slopes), so one odd month doesn't swing it. A change counts only when the whole change over the span clears both
+// your photo noise and the line's own uncertainty (from the months' scatter around it).
+function photoTrend(pose){
+  const P = photos().filter(q => q.pose === pose && cleanShot(q.a) && q.a.v === SCAN_V).sort((a, b) => a.at - b.at);
+  const byDay = {}; P.forEach(q => { byDay[dkey(q.at)] = q; }); const L = Object.values(byDay);
+  if (L.length < 4 || L[L.length - 1].at - L[0].at < 60 * dayMs) return null;
+  const mo = 30.4 * dayMs, rows = (METRICS[pose] || []).map(([k, label, good]) => {
+    const pts = L.map(q => [q.at / mo, pm(q)[k]]).filter(x => x[1] != null); if (pts.length < 4) return null;
+    const sl = []; for (let i = 0; i < pts.length; i++) for (let j = i + 1; j < pts.length; j++) if (pts[j][0] > pts[i][0]) sl.push((pts[j][1] - pts[i][1]) / (pts[j][0] - pts[i][0]));
+    sl.sort((a, b) => a - b); const b = sl[sl.length >> 1], ys = pts.map(x => x[1]).sort((a, c) => a - c), mid = ys[ys.length >> 1];
+    const a0 = pts.map(([x, y]) => y - b * x).sort((u, v) => u - v)[pts.length >> 1], res = pts.map(([x, y]) => Math.abs(y - a0 - b * x)).sort((u, v) => u - v);
+    const scatter = 1.48 * res[res.length >> 1] / mid, span = pts[pts.length - 1][0] - pts[0][0], total = b * span / mid;
+    const xm = pts.reduce((t, [x]) => t + x, 0) / pts.length, sxx = pts.reduce((t, [x]) => t + (x - xm) ** 2, 0);
+    const real = Math.abs(total) >= Math.max(photoTh(pose, k), 2.5 * scatter * span / Math.sqrt(sxx));   // the line's own uncertainty, with room for few points
+    return { k, label, good, total, perMo:b / mid, months:span, real, n:pts.length };
+  }).filter(Boolean);
+  return rows.length ? rows : null;
+}
+function trendPanel(){
+  const parts = Object.entries(POSES).map(([pose, l]) => { const T = photoTrend(pose); if (!T) return "";
+    return `<div><b>${l}</b> <span class="hint">(${T[0].n} check-ins over ${Math.round(T[0].months)} months)</span>${T.map(r => `<div class="row" style="gap:8px"><span class="grow">${r.label}</span><span class="num ${r.real && r.good ? ((r.total > 0) === (r.good > 0) ? "ok" : "err") : "hint"}" style="padding:0;background:none">${r.real ? `${r.total > 0 ? "+" : "−"}${Math.abs(r.total * 100).toFixed(1)}% (${r.perMo > 0 ? "+" : "−"}${Math.abs(r.perMo * 100).toFixed(1)}%/mo)` : "steady (within noise)"}</span></div>`).join("")}</div>`; }).filter(Boolean);
+  return parts.length ? `<details class="why" id="trendPanel" open><summary>📈 Trend across all your photos</summary>${parts.join("")}<p class="hint" style="font-size:0.735rem;margin:0">A straight line through every check-in, so one odd month can't swing it. A change shows only when it's bigger than your photo noise and the month-to-month scatter.</p></details>` : "";
+}
 function photoStatus(p){
   if (busy.has(p.id)) return `<p class="why">Measuring… the first time takes a moment while the photo model loads.</p>`;
   if (p.err) return `<p class="why">${p.err === "offline" ? "Not measured yet: the photo model downloads the first time you're online. It's saved for offline use after that." : `Couldn't measure: ${esc(p.err)}`}</p><button class="small" data-act="phAnalyze" data-id="${p.id}" id="pha-${p.id}">Try again</button>`;
@@ -1568,7 +1606,7 @@ function photosPanel(){
       <p class="hint">Both photos are lined up on your shoulders and hips. Slide to wipe between them.</p></div>` : "";
   const past = list.length > 1 ? `<details><summary style="cursor:pointer;font-weight:700">All photos (${photos().length})</summary>${list.map(([d, ps]) => `<div class="rvx"><span class="n">${new Date(dayOf(d)).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"})}</span><div class="pgal">${ps.map(p => `<img class="pth" data-pid="${p.id}" alt="${POSES[p.pose]} photo" ${pcache[p.id] && pcache[p.id].thumb ? `src="${pcache[p.id].thumb}"` : ""} data-act="phView" data-id="${p.id}">`).join("")}</div></div>`).join("")}</details>` : "";
   return `<div class="panel" id="photosPanel"><div class="row"><h3 class="grow">📸 Progress photos</h3><span class="hint">${pd.last ? pd.due ? "due now" : `next in ${PHOTO_EVERY - pd.days} days` : "every 4 weeks"}</span></div>
-    ${shootBox}${results}${compare}${past}</div>`;
+    ${shootBox}${trendPanel()}${results}${compare}${past}</div>`;
 }
 function photoView(){
   const p = photos().find(q => q.id === viewPhoto); if (!p){ viewPhoto = null; return ""; }

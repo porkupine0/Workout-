@@ -204,6 +204,15 @@ const ok = (cond, name, detail) => { if (cond){ passes++; } else { fails++; cons
     const q2 = { id:'m2', at:2, pose:'front', a:{ ok:true, m:m(.81), flags:[], v:SCAN_V }, extra:[{ ok:true, m:m(.80), flags:[], v:SCAN_V }, { ok:true, m:m(.83), flags:[], v:SCAN_V }] };
     state.body.photos.push(q, q2); const r = { n:shotsOf(q).length, med:pm(q).waist, sd:!!photoSD('front', 'waist') }; state.body.photos = []; return r; });
   ok(ms.n === 3 && ms.med === .8 && ms.sd, 'multi-shot: median of clean shots, feeds noise', JSON.stringify(ms));
+  // photo trend: a no-change series stays quiet, a real 1%/month waist drop shows; setup note flags a different setup
+  const tr = await p.evaluate(() => { let seed = 99; const rnd = () => { seed = (seed * 48271) % 2147483647; return seed / 2147483647; }, g = () => { let u = 0; while (!u) u = rnd(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rnd()); };
+    state.body.prep = {}; const mo = 30.4 * 864e5, mk = (i, waist, arm = 15) => ({ id:'t' + i, at:Date.now() - (8 - i) * mo, pose:'front', a:{ ok:true, v:SCAN_V, flags:[], torso:.27, setup:{ arm, sep:.6 }, m:{ shoulder:1.2 * (1 + .015 * g()), waist, hip:.9 * (1 + .015 * g()), taper:1.5 } } });
+    let quiet = 0, seen = 0;
+    for (let run = 0; run < 40; run++){ state.body.photos = Array.from({ length:8 }, (_, i) => mk(i, .8 * (1 + .015 * g()))); if (!photoTrend('front').find(r => r.k === 'waist').real) quiet++;
+      state.body.photos = Array.from({ length:8 }, (_, i) => mk(i, .8 * (1 - .01 * i) * (1 + .015 * g()))); const w = photoTrend('front').find(r => r.k === 'waist'); if (w.real && w.total < 0) seen++; }
+    state.body.photos = [mk(0, .8), mk(1, .8), mk(2, .8, 35)]; const note = setupNote(state.body.photos[2]);
+    state.body.photos = []; return { quiet, seen, note:/arms further out/.test(note) }; });
+  ok(tr.quiet >= 36 && tr.seen >= 30 && tr.note, 'photo trend: quiet without change, catches a real one; setup note', JSON.stringify(tr));
   ok(errs.length === 0, 'no page errors', errs.join('\n'));
   // damaged saved data: rescue screen, and the stored data is not overwritten
   for (const [name, raw] of [['unreadable', '{"v":1,"units":"lb","days":[],"sessions":[{"id":"a"'], ['wrong-typed', JSON.stringify({ v:1, units:'lb', days:[], sessions:[{ id:'s', dayId:'d', start:1, end:2, items:[] }], body:'oops', goals:5 })]]){
