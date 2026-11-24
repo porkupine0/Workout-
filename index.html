@@ -2161,7 +2161,7 @@ function savedPanel(){
         <details style="grid-column:1/-1" id="svdet-${esc(t.id)}"><summary class="hint" style="cursor:pointer">Exercises & options</summary>
           <div class="svlist">${t.items.map((it, j) => `<div class="svrow"><span class="svn">${j + 1}. ${esc(exById(it.ex).n)}${it.ss && t.items[j+1] ? " 🔗" : ""}</span>
             <span class="svf"><input type="text" inputmode="numeric" id="svs-${i}-${j}" data-svf="sets" data-i="${i}" data-j="${j}" value="${it.sets}" aria-label="Sets" autocomplete="off"><span>×</span><input type="text" inputmode="numeric" id="svl-${i}-${j}" data-svf="lo" data-i="${i}" data-j="${j}" value="${it.lo}" aria-label="Reps low" autocomplete="off"><span>–</span><input type="text" inputmode="numeric" id="svh-${i}-${j}" data-svf="hi" data-i="${i}" data-j="${j}" value="${it.hi}" aria-label="Reps high" autocomplete="off"></span>
-            <span class="svb"><button class="small ghost" data-act="svUp" data-i="${i}" data-j="${j}" id="svup-${i}-${j}" aria-label="Move up" ${j ? "" : "disabled"}>↑</button><button class="small ghost" data-act="svSS" data-i="${i}" data-j="${j}" id="svss-${i}-${j}" aria-label="Superset with next" aria-pressed="${!!it.ss}" ${t.items[j+1] ? "" : "disabled"}>🔗</button><button class="small ghost" data-act="svRm" data-i="${i}" data-j="${j}" id="svrm-${i}-${j}" aria-label="Remove">✕</button></span></div>`).join("")}</div>
+            <span class="svb"><button class="small ghost" data-act="svUp" data-i="${i}" data-j="${j}" id="svup-${i}-${j}" aria-label="Move up" ${ssAtEdge(t.items, j, -1) ? "disabled" : ""}>↑</button><button class="small ghost" data-act="svSS" data-i="${i}" data-j="${j}" id="svss-${i}-${j}" aria-label="Superset with next" aria-pressed="${!!it.ss}" ${t.items[j+1] ? "" : "disabled"}>🔗</button><button class="small ghost" data-act="svRm" data-i="${i}" data-j="${j}" id="svrm-${i}-${j}" aria-label="Remove">✕</button></span></div>`).join("")}</div>
           <div class="btnrow"><button class="small" data-act="svAdd" data-i="${i}" id="sv-add-${i}">+ Add exercises</button><button class="small" data-act="svRename" data-i="${i}" id="sv-ren-${i}">Rename</button><button class="small danger" data-act="svDel" data-i="${i}" id="sv-del-${i}">${confirmKey === "sv" + i ? "Tap again to delete" : "Delete"}</button></div>
           <p class="hint" style="font-size:0.735rem">Sets × rep range for each. Weights come from each exercise's history when you start it.</p></details></div>`; }).join("")}</div>`;
 }
@@ -2193,6 +2193,18 @@ function blockCard(){
 }
 
 // after ✓, bring the next set to log into view (a superset partner first), without focusing a box or opening the keyboard
+// Superset groups: an unbroken run of 🔗 links (a pair, or a triset) moves as one block, and a single exercise hops a
+// whole group instead of landing inside it. Returns the [start, end] index of each group.
+function ssGroups(a){ const g = []; for (let i = 0; i < a.length; ){ let j = i; while (a[j].ss && j + 1 < a.length) j++; g.push([i, j]); i = j + 1; } return g; }
+const ssGroupAt = (a, x) => ssGroups(a).findIndex(([s, e]) => x >= s && x <= e);
+// can't move further: the group holding x is already first (dir -1) or last (dir 1)
+const ssAtEdge = (a, x, dir) => { const k = ssGroupAt(a, x); return dir < 0 ? k <= 0 : k === ssGroups(a).length - 1; };
+function moveGroup(a, x, dir){
+  const G = ssGroups(a), k = ssGroupAt(a, x), n = k + dir; if (k < 0 || n < 0 || n >= G.length) return false;
+  const parts = G.map(([s, e]) => a.slice(s, e + 1)); [parts[k], parts[n]] = [parts[n], parts[k]];
+  parts.forEach(p => { if (p[p.length-1].ss) p[p.length-1].ss = false; });   // a stray link on the old last exercise mustn't grab a new partner
+  a.splice(0, a.length, ...parts.flat()); return true;
+}
 // after ✓ on a set that still needs its RIR: keep that row (with its RIR buttons) clear of the top bar and the dock
 function keepRowVisible(id){
   const el = document.getElementById(id), row = el && el.closest(".setrow"); if (!row) return;
@@ -2240,7 +2252,7 @@ function sessionView(){
     return `<div class="panel exc ${inSS?"ss":""} ${it.ss?"ss-a":""} ${ssPrev?"ss-b":""}">
       ${inSS?`<span class="sslabel">${it.ss?"Superset · then":"Superset · after"} ${esc(exById((it.ss?a.items[xi+1]:a.items[xi-1]).ex).n)}${ssPrev && ssWarnText(exById(a.items[xi-1].ex), ex) ? " ⚠️" : ""}</span>`:""}
       <div class="exhead"><div class="grow">${it.open ? `<button class="small ghost" data-act="exOpen" data-x="${xi}" id="shut-${xi}" aria-expanded="true" style="float:right;margin-left:6px">▴</button>` : ""}<button class="en exlink" data-act="exPage" data-id="${esc(ex.id)}" id="xpg-${xi}" aria-label="${esc(ex.n)}: open exercise page">${esc(ex.n)} <span aria-hidden="true" style="font-size:0.7em;opacity:.6">›</span></button><div class="em">${esc(ex.m)} · ${EQ[ex.e]||""} · ${it.targetSets?`${it.targetSets} × ${isT?`${it.lo}-${it.hi}s`:`${it.lo}-${it.hi}`}`:"no target"} · rest ${fmtTime(it.rest)}</div></div>
-        <div class="iconbtns"><button id="swap-${xi}" data-act="swap" data-x="${xi}" aria-label="Swap ${esc(ex.n)}">⇄ Swap</button><button id="up-${xi}" data-act="sxUp" data-x="${xi}" aria-label="Move ${esc(ex.n)} up" ${xi===0?"disabled":""}>↑</button><button id="rm-${xi}" data-act="sxRm" data-x="${xi}" aria-label="Remove ${esc(ex.n)}">${confirmKey==="sxrm"+xi?"Remove?":"✕"}</button></div></div>
+        <div class="iconbtns"><button id="swap-${xi}" data-act="swap" data-x="${xi}" aria-label="Swap ${esc(ex.n)}">⇄ Swap</button><button id="up-${xi}" data-act="sxUp" data-x="${xi}" aria-label="Move ${esc(ex.n)} up" ${ssAtEdge(a.items, xi, -1)?"disabled":""}>↑</button><button id="rm-${xi}" data-act="sxRm" data-x="${xi}" aria-label="Remove ${esc(ex.n)}">${confirmKey==="sxrm"+xi?"Remove?":"✕"}</button></div></div>
       ${note ? `<div class="notepre">📝 ${esc(note)}</div>` : ""}
       ${it.coachNote ? `<div class="notepre">🤖 ${esc(it.coachNote)}</div>` : ""}
       ${last ? `<div class="prev num">Last time (${agoTxt(last.at)}): ${last.sets.map(s=>fmtSet(s, ex.t)).join(", ")}${last.first ? ` · started ${SIDE[last.first].toLowerCase()}` : ""}</div>` : `<div class="prev">First time logging this one.</div>`}
@@ -2392,7 +2404,7 @@ function programView(){
   const days = state.days.map((d, di) => {
     const items = d.items.map((it, xi) => { const ex = exById(it.ex), isT = ex.t === "time";
       return `<div class="pitem"><div class="row"><span class="pn grow">${esc(ex.n)} <span class="hint" style="font-weight:400">· ${esc(ex.m)}</span></span>
-        <span class="iconbtns"><button id="pu-${di}-${xi}" data-act="piUp" data-d="${di}" data-x="${xi}" aria-label="Move up" ${xi===0?"disabled":""}>↑</button><button id="pd-${di}-${xi}" data-act="piDown" data-d="${di}" data-x="${xi}" aria-label="Move down" ${xi===d.items.length-1?"disabled":""}>↓</button><button id="pr-${di}-${xi}" data-act="piRm" data-d="${di}" data-x="${xi}" aria-label="Remove">✕</button></span></div>
+        <span class="iconbtns"><button id="pu-${di}-${xi}" data-act="piUp" data-d="${di}" data-x="${xi}" aria-label="Move up" ${ssAtEdge(d.items, xi, -1)?"disabled":""}>↑</button><button id="pd-${di}-${xi}" data-act="piDown" data-d="${di}" data-x="${xi}" aria-label="Move down" ${ssAtEdge(d.items, xi, 1)?"disabled":""}>↓</button><button id="pr-${di}-${xi}" data-act="piRm" data-d="${di}" data-x="${xi}" aria-label="Remove">✕</button></span></div>
         ${it.ss && xi < d.items.length-1 ? `<span class="sslabel">🔗 Superset with ${esc(exById(d.items[xi+1].ex).n)}</span>${(w => w ? `<span class="hint" style="font-size:0.735rem;color:var(--bad)">⚠️ ${esc(w)}</span>` : "")(ssWarnText(ex, exById(d.items[xi+1].ex)))}` : ""}
         <div class="pgrid">
           <label>Sets<span class="mini"><button data-act="piSets" data-d="${di}" data-x="${xi}" data-v="-1" id="ps-${di}-${xi}-m" aria-label="Fewer sets">−</button><span class="num">${it.sets}</span><button data-act="piSets" data-d="${di}" data-x="${xi}" data-v="1" id="ps-${di}-${xi}-p" aria-label="More sets">+</button></span></label>
@@ -4195,7 +4207,7 @@ document.addEventListener("click", e => {
     case "startSaved": { const t = state.saved[+b.dataset.i]; if (!t) break; if (state.askReady){ ready = { i:-1, saved:t.id, a:{ sleep:"730-815", sore:"2", energy:"3" } }; render(); } else startSession(savedDay(t.id)); break; }
     case "svBuild": picker = { target:"newSaved", q:"", m:"All", e:"All", sel:[] }; render(); break;
     case "svAdd": picker = { target:"saved", d:+b.dataset.i, q:"", m:"All", e:"All", sel:[] }; render(); break;
-    case "svUp": { const t = state.saved[+b.dataset.i], j = +b.dataset.j; if (!t || !j) break; [t.items[j-1], t.items[j]] = [t.items[j], t.items[j-1]]; t.items[t.items.length-1].ss = false; t.updated = Date.now(); save(); render(); break; }
+    case "svUp": { const t = state.saved[+b.dataset.i], j = +b.dataset.j; if (!t || !moveGroup(t.items, j, -1)) break; t.items[t.items.length-1].ss = false; t.updated = Date.now(); save(); render(); break; }
     case "svSS": { const t = state.saved[+b.dataset.i], j = +b.dataset.j; if (!t || !t.items[j+1]) break; t.items[j].ss = !t.items[j].ss; save(); render(); break; }
     case "svRm": { const t = state.saved[+b.dataset.i], j = +b.dataset.j; if (!t) break; t.items.splice(j, 1); if (t.items.length) t.items[t.items.length-1].ss = false; save(); render(); break; }
     case "svRename": { const t = state.saved[+b.dataset.i], v = askName(t.name); if (v){ t.name = v.slice(0, 40); save(); render(); } break; }
@@ -4268,7 +4280,7 @@ document.addEventListener("click", e => {
     case "rmSet": { const it = state.active.items[x], drop = () => { if (it.sets.length > 1) it.sets.pop(); save(); render(); };
       if (it.sets.length > 1 && it.sets[it.sets.length - 1].done) confirmThen("rmset" + x, drop); else drop(); break; }
     case "restTap": { const it = state.active.items[x]; startTimer(it.rest, exById(it.ex).n); save(); render(); break; }
-    case "sxUp": { const a = state.active.items; if (x > 0){ [a[x-1], a[x]] = [a[x], a[x-1]]; save(); render(); } break; }
+    case "sxUp": { if (moveGroup(state.active.items, x, -1)){ save(); render(); } break; }
     case "sxRm": confirmThen("sxrm"+x, ()=>{ state.active.items.splice(x,1); save(); render(); }); break;
     case "finish": tryFinish(false); break;
     case "fcFinish": tryFinish(true); break;
@@ -4331,8 +4343,8 @@ document.addEventListener("click", e => {
     case "addDay": state.days.push({ id:uid(), name:`Day ${state.days.length+1}`, items:[] }); save(); render(); break;
     case "dayUp": if (d > 0){ [state.days[d-1], state.days[d]] = [state.days[d], state.days[d-1]]; save(); render(); } break;
     case "dayRm": confirmThen("dayrm"+d, ()=>{ state.days.splice(d,1); save(); render(); }); break;
-    case "piUp": { const a = state.days[d].items; if (x > 0){ [a[x-1], a[x]] = [a[x], a[x-1]]; save(); render(); } break; }
-    case "piDown": { const a = state.days[d].items; if (x < a.length-1){ [a[x+1], a[x]] = [a[x], a[x+1]]; save(); render(); } break; }
+    case "piUp": { if (moveGroup(state.days[d].items, x, -1)){ ssFix = null; save(); render(); } break; }
+    case "piDown": { if (moveGroup(state.days[d].items, x, 1)){ ssFix = null; save(); render(); } break; }
     case "piRm": state.days[d].items.splice(x,1); save(); render(); break;
     case "piSets": { const it = state.days[d].items[x]; it.sets = Math.max(1, Math.min(10, it.sets + (+b.dataset.v))); save(); render(); break; }
     case "piRest": { const it = state.days[d].items[x]; it.rest = Math.max(0, Math.min(600, it.rest + (+b.dataset.v))); save(); render(); break; }
