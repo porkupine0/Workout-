@@ -1028,7 +1028,7 @@ function exposuresRaw(exId){
     const pos = s.items.indexOf(it), inSS = it.ss || (pos > 0 && s.items[pos-1].ss), known = work.filter(x => x.rir != null);
     const rs = inSS ? [] : it.sets.filter((x, k) => k > 0 && x.done && x.tag !== "W" && x.rest != null && x.rest > 0).map(x => x.rest);
     out.push({ at:s.end, dayId:s.dayId, work, score, day, improved, pos, of:s.items.length, rest:rs.length ? avg(rs) : null, restT:it.rest || null,
-      back:it.back || null, pain:!!it.pain, rir:known.length ? avg(known.map(x => x.rir)) : null, pre:pos > 0 && s.items[pos-1].ss ? { ex:s.items[pos-1].ex, ov:overlapOf(exById(s.items[pos-1].ex), ex).v } : null, bad:!!((s.ready && BAD_DAY.has(s.ready.level)) || s.light || s.easy || it.pain), light:!!(s.light || s.easy), extra:!!it.extra, sid:s.id, flag:(it.target && it.target.flag) || null });
+      back:it.back || null, pain:!!it.pain, rir:known.length ? avg(known.map(x => x.rir)) : null, pre:pos > 0 && s.items[pos-1].ss ? { ex:s.items[pos-1].ex, ov:overlapOf(exById(s.items[pos-1].ex), ex).v } : null, bad:!!((s.ready && BAD_DAY.has(s.ready.level)) || s.light || s.easy || it.pain), light:!!(s.light || s.easy), extra:!!it.extra, match:!!it.match, sid:s.id, flag:(it.target && it.target.flag) || null });
     prior.push(...work); bestScore = Math.max(bestScore, score); bestDay = Math.max(bestDay, day); });
   return out;
 }
@@ -2161,7 +2161,7 @@ function savedPanel(){
         <details style="grid-column:1/-1" id="svdet-${esc(t.id)}"><summary class="hint" style="cursor:pointer">Exercises & options</summary>
           <div class="svlist">${t.items.map((it, j) => `<div class="svrow"><span class="svn">${j + 1}. ${esc(exById(it.ex).n)}${it.ss && t.items[j+1] ? " 🔗" : ""}</span>
             <span class="svf"><input type="text" inputmode="numeric" id="svs-${i}-${j}" data-svf="sets" data-i="${i}" data-j="${j}" value="${it.sets}" aria-label="Sets" autocomplete="off"><span>×</span><input type="text" inputmode="numeric" id="svl-${i}-${j}" data-svf="lo" data-i="${i}" data-j="${j}" value="${it.lo}" aria-label="Reps low" autocomplete="off"><span>–</span><input type="text" inputmode="numeric" id="svh-${i}-${j}" data-svf="hi" data-i="${i}" data-j="${j}" value="${it.hi}" aria-label="Reps high" autocomplete="off"></span>
-            <span class="svb"><button class="small ghost" data-act="svUp" data-i="${i}" data-j="${j}" id="svup-${i}-${j}" aria-label="Move up" ${j ? "" : "disabled"}>↑</button><button class="small ghost" data-act="svSS" data-i="${i}" data-j="${j}" id="svss-${i}-${j}" aria-label="Superset with next" aria-pressed="${!!it.ss}" ${t.items[j+1] ? "" : "disabled"}>🔗</button><button class="small ghost" data-act="svRm" data-i="${i}" data-j="${j}" id="svrm-${i}-${j}" aria-label="Remove">✕</button></span></div>`).join("")}</div>
+            <span class="svb"><button class="small ghost" data-act="svUp" data-i="${i}" data-j="${j}" id="svup-${i}-${j}" aria-label="Move up" ${ssAtEdge(t.items, j, -1) ? "disabled" : ""}>↑</button><button class="small ghost" data-act="svSS" data-i="${i}" data-j="${j}" id="svss-${i}-${j}" aria-label="Superset with next" aria-pressed="${!!it.ss}" ${t.items[j+1] ? "" : "disabled"}>🔗</button><button class="small ghost" data-act="svRm" data-i="${i}" data-j="${j}" id="svrm-${i}-${j}" aria-label="Remove">✕</button></span></div>`).join("")}</div>
           <div class="btnrow"><button class="small" data-act="svAdd" data-i="${i}" id="sv-add-${i}">+ Add exercises</button><button class="small" data-act="svRename" data-i="${i}" id="sv-ren-${i}">Rename</button><button class="small danger" data-act="svDel" data-i="${i}" id="sv-del-${i}">${confirmKey === "sv" + i ? "Tap again to delete" : "Delete"}</button></div>
           <p class="hint" style="font-size:0.735rem">Sets × rep range for each. Weights come from each exercise's history when you start it.</p></details></div>`; }).join("")}</div>`;
 }
@@ -2193,6 +2193,24 @@ function blockCard(){
 }
 
 // after ✓, bring the next set to log into view (a superset partner first), without focusing a box or opening the keyboard
+// Superset groups: an unbroken run of 🔗 links (a pair, or a triset) moves as one block, and a single exercise hops a
+// whole group instead of landing inside it. Returns the [start, end] index of each group.
+function ssGroups(a){ const g = []; for (let i = 0; i < a.length; ){ let j = i; while (a[j].ss && j + 1 < a.length) j++; g.push([i, j]); i = j + 1; } return g; }
+const ssGroupAt = (a, x) => ssGroups(a).findIndex(([s, e]) => x >= s && x <= e);
+// can't move further: the group holding x is already first (dir -1) or last (dir 1)
+const ssAtEdge = (a, x, dir) => { const k = ssGroupAt(a, x); return dir < 0 ? k <= 0 : k === ssGroups(a).length - 1; };
+function moveGroup(a, x, dir){
+  const G = ssGroups(a), k = ssGroupAt(a, x), n = k + dir; if (k < 0 || n < 0 || n >= G.length) return false;
+  const parts = G.map(([s, e]) => a.slice(s, e + 1)); [parts[k], parts[n]] = [parts[n], parts[k]];
+  parts.forEach(p => { if (p[p.length-1].ss) p[p.length-1].ss = false; });   // a stray link on the old last exercise mustn't grab a new partner
+  a.splice(0, a.length, ...parts.flat()); return true;
+}
+// after ✓ on a set that still needs its RIR: keep that row (with its RIR buttons) clear of the top bar and the dock
+function keepRowVisible(id){
+  const el = document.getElementById(id), row = el && el.closest(".setrow"); if (!row) return;
+  const r = row.getBoundingClientRect(), dock = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--dockH")) || 0;
+  if (r.top < 90 || r.bottom > innerHeight - dock - 8) row.scrollIntoView({ block:"center", behavior:matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+}
 function showNextSet(x){
   const its = state.active ? state.active.items : [], open = i => its[i] && its[i].sets.findIndex(q => !q.done);
   const order = [];
@@ -2228,13 +2246,13 @@ function sessionView(){
     // the reasons behind today's plan sit behind one toggle, so the card shows what to lift
     const whys = [
       ssPrev && ssWarnText(exById(a.items[xi-1].ex), ex) ? `⚠️ Starts tired from ${esc(exById(a.items[xi-1].ex).n)}. Compare its numbers to other superset days, not your fresh best.` : "",
-      it.fbWhy ? `${it.fbAdj > 0 ? "📈" : "📉"} ${esc(it.fbWhy)}` : it.extra ? `📈 Build week: a 4th set, since this one's still progressing. If set 4 lands under ${it.lo || 8}, it goes back to 3 for the rest of the block.` : "",
+      it.fbWhy ? `${it.fbAdj > 0 ? "📈" : "📉"} ${esc(it.fbWhy)}` : it.matchWhy ? `🔗 ${esc(it.matchWhy)}` : it.extra ? `📈 Build week: a 4th set, since this one's still progressing. If set 4 lands under ${it.lo || 8}, it goes back to 3 for the rest of the block.` : "",
       baseLikely(ex) && loaded(ex) && !(ex.id in state.base) ? `⚙️ This machine may add starting resistance (look for a sticker). Enter it once on the exercise page (tap the exercise name), or put 0 if there isn't one.` : ""
     ].filter(Boolean);
     return `<div class="panel exc ${inSS?"ss":""} ${it.ss?"ss-a":""} ${ssPrev?"ss-b":""}">
       ${inSS?`<span class="sslabel">${it.ss?"Superset · then":"Superset · after"} ${esc(exById((it.ss?a.items[xi+1]:a.items[xi-1]).ex).n)}${ssPrev && ssWarnText(exById(a.items[xi-1].ex), ex) ? " ⚠️" : ""}</span>`:""}
       <div class="exhead"><div class="grow">${it.open ? `<button class="small ghost" data-act="exOpen" data-x="${xi}" id="shut-${xi}" aria-expanded="true" style="float:right;margin-left:6px">▴</button>` : ""}<button class="en exlink" data-act="exPage" data-id="${esc(ex.id)}" id="xpg-${xi}" aria-label="${esc(ex.n)}: open exercise page">${esc(ex.n)} <span aria-hidden="true" style="font-size:0.7em;opacity:.6">›</span></button><div class="em">${esc(ex.m)} · ${EQ[ex.e]||""} · ${it.targetSets?`${it.targetSets} × ${isT?`${it.lo}-${it.hi}s`:`${it.lo}-${it.hi}`}`:"no target"} · rest ${fmtTime(it.rest)}</div></div>
-        <div class="iconbtns"><button id="swap-${xi}" data-act="swap" data-x="${xi}" aria-label="Swap ${esc(ex.n)}">⇄ Swap</button><button id="up-${xi}" data-act="sxUp" data-x="${xi}" aria-label="Move ${esc(ex.n)} up" ${xi===0?"disabled":""}>↑</button><button id="rm-${xi}" data-act="sxRm" data-x="${xi}" aria-label="Remove ${esc(ex.n)}">${confirmKey==="sxrm"+xi?"Remove?":"✕"}</button></div></div>
+        <div class="iconbtns"><button id="swap-${xi}" data-act="swap" data-x="${xi}" aria-label="Swap ${esc(ex.n)}">⇄ Swap</button><button id="up-${xi}" data-act="sxUp" data-x="${xi}" aria-label="Move ${esc(ex.n)} up" ${ssAtEdge(a.items, xi, -1)?"disabled":""}>↑</button><button id="rm-${xi}" data-act="sxRm" data-x="${xi}" aria-label="Remove ${esc(ex.n)}">${confirmKey==="sxrm"+xi?"Remove?":"✕"}</button></div></div>
       ${note ? `<div class="notepre">📝 ${esc(note)}</div>` : ""}
       ${it.coachNote ? `<div class="notepre">🤖 ${esc(it.coachNote)}</div>` : ""}
       ${last ? `<div class="prev num">Last time (${agoTxt(last.at)}): ${last.sets.map(s=>fmtSet(s, ex.t)).join(", ")}${last.first ? ` · started ${SIDE[last.first].toLowerCase()}` : ""}</div>` : `<div class="prev">First time logging this one.</div>`}
@@ -2348,10 +2366,10 @@ function applyFeedback(a, day, ctx){
     if (c.call === "less"){ const i = idx.filter(i => (day.items[i].sets || 3) >= 3).pop(); if (i == null) return;
       const it = buildSessionItem({ ...day.items[i], sets:(day.items[i].sets || 3) - 1 }, ctx, true); it.fbAdj = -1; it.fbWhy = `${m}: ${c.why}, so one set fewer today.`; a.items[i] = it; return; }
     if (phaseOf() === "cut" && !(state.goals.priority || []).includes(m)) return;   // on a cut, only priority muscles get extra
-    idx.filter(i => extraOK(day.items[i], a.items[i])).slice(0, c.streak && phaseOf() !== "cut" ? 2 : 1).forEach(i => {
+    idx.filter(i => !a.items[i].extra && extraOK(day.items[i], a.items[i]) && matesOK(a, day, i, (day.items[i].sets || 3) + 1)).slice(0, c.streak && phaseOf() !== "cut" ? 2 : 1).forEach(i => {
       const tpl = day.items[i], it = buildSessionItem({ ...tpl, sets:(tpl.sets || 3) + 1 }, ctx, true), r = it.target.reps, lo = tpl.lo || 8, n = r.length;
       if (n >= 2 && r[n-2] !== "" && r[n-2] != null){ r[n-1] = Math.max(lo - 1, (num(r[n-2]) || lo) - 1); it.sets[n-1].r = String(r[n-1]); }
-      it.extra = true; it.fbAdj = 1; it.fbWhy = `${m}: ${c.why}, so one more set today.`; a.items[i] = it; });
+      it.extra = true; it.fbAdj = 1; it.fbWhy = `${m}: ${c.why}, so one more set today.`; a.items[i] = it; matchMates(a, day, ctx, i); });
   });
 }
 function summaryView(){
@@ -2386,7 +2404,7 @@ function programView(){
   const days = state.days.map((d, di) => {
     const items = d.items.map((it, xi) => { const ex = exById(it.ex), isT = ex.t === "time";
       return `<div class="pitem"><div class="row"><span class="pn grow">${esc(ex.n)} <span class="hint" style="font-weight:400">· ${esc(ex.m)}</span></span>
-        <span class="iconbtns"><button id="pu-${di}-${xi}" data-act="piUp" data-d="${di}" data-x="${xi}" aria-label="Move up" ${xi===0?"disabled":""}>↑</button><button id="pd-${di}-${xi}" data-act="piDown" data-d="${di}" data-x="${xi}" aria-label="Move down" ${xi===d.items.length-1?"disabled":""}>↓</button><button id="pr-${di}-${xi}" data-act="piRm" data-d="${di}" data-x="${xi}" aria-label="Remove">✕</button></span></div>
+        <span class="iconbtns"><button id="pu-${di}-${xi}" data-act="piUp" data-d="${di}" data-x="${xi}" aria-label="Move up" ${ssAtEdge(d.items, xi, -1)?"disabled":""}>↑</button><button id="pd-${di}-${xi}" data-act="piDown" data-d="${di}" data-x="${xi}" aria-label="Move down" ${ssAtEdge(d.items, xi, 1)?"disabled":""}>↓</button><button id="pr-${di}-${xi}" data-act="piRm" data-d="${di}" data-x="${xi}" aria-label="Remove">✕</button></span></div>
         ${it.ss && xi < d.items.length-1 ? `<span class="sslabel">🔗 Superset with ${esc(exById(d.items[xi+1].ex).n)}</span>${(w => w ? `<span class="hint" style="font-size:0.735rem;color:var(--bad)">⚠️ ${esc(w)}</span>` : "")(ssWarnText(ex, exById(d.items[xi+1].ex)))}` : ""}
         <div class="pgrid">
           <label>Sets<span class="mini"><button data-act="piSets" data-d="${di}" data-x="${xi}" data-v="-1" id="ps-${di}-${xi}-m" aria-label="Fewer sets">−</button><span class="num">${it.sets}</span><button data-act="piSets" data-d="${di}" data-x="${xi}" data-v="1" id="ps-${di}-${xi}-p" aria-label="More sets">+</button></span></label>
@@ -3982,17 +4000,39 @@ function extraOK(tpl, item){
   if (!L || L.pain || L.back || L.work.length < 3 || (num(L.work[2].r) || 0) < lo + 1) return false;
   if (H.length >= 2 && L.score < H[H.length - 2].score * .97) return false;
   const since = state.block ? state.block.start : 0;
-  return !H.some(h => h.at >= since && h.work.length >= 4 && (num(h.work[3].r) || 0) < lo);
+  return !H.some(h => h.at >= since && !h.match && h.work.length >= 4 && (num(h.work[3].r) || 0) < lo);
+}
+// Supersets stay in step: when one exercise gets an extra set, its linked partners get one too. A partner doesn't have to
+// earn it, but it must be able to take it: not after pain, not when its muscle's feedback says less, and not past the
+// day cap. If a partner can't, nobody in the group gets the extra set, so the slot goes to another exercise.
+function ssMates(day, i){ const g = ssGroups(day.items).find(([s, e]) => i >= s && i <= e); return g ? Array.from({ length:g[1] - g[0] + 1 }, (_, k) => g[0] + k).filter(j => j !== i) : []; }
+function mateOK(a, day, j, sets, lead){
+  const it = a.items[j], ex = exById(day.items[j].ex); if (!it) return false;
+  if (it.sets.length >= sets) return true;   // already has as many sets
+  if (it.fbAdj < 0 || (muscleCall(ex.m) || {}).call === "less") return false;
+  const H = exposures(day.items[j].ex), L = H[H.length - 1]; if (L && (L.pain || L.back)) return false;
+  if (LIFT_MUSCLES.includes(ex.m) && creditSets(a.items, ex.m, x => x.sets.length) + 1 + (exById(day.items[lead].ex).m === ex.m ? 1 : 0) > volCaps().day) return false;
+  return true;
+}
+const matesOK = (a, day, i, sets) => ssMates(day, i).every(j => mateOK(a, day, j, sets, i));
+function matchMates(a, day, ctx, i){
+  const lead = a.items[i], n = lead.sets.length, name = exById(lead.ex).n;
+  ssMates(day, i).forEach(j => { const cur = a.items[j]; if (cur.sets.length >= n) return;
+    const tpl = day.items[j], ex = exById(tpl.ex), it = buildSessionItem({ ...tpl, sets:cur.sets.length + 1 }, ctx, true), r = it.target.reps, k = r.length, lo = tpl.lo || 8;
+    if (ex.t !== "time" && k >= 2 && r[k-2] !== "" && r[k-2] != null){ r[k-1] = Math.max(lo, (num(r[k-2]) || lo) - 1); it.sets[k-1].r = String(r[k-1]); }
+    it.extra = true; it.match = true; it.matchWhy = `One extra set to match ${name}, so the superset stays in step. It doesn't count against this exercise if it comes up short.`;
+    a.items[j] = it; });
 }
 function addBuildSets(a, day, ctx){
   const n = buildCount(ctx); if (!n) return;
   const prio = new Set(state.goals.priority || []), P = i => prio.has(exById(day.items[i].ex).m) ? 1 : 0;
   const fbM = new Set(a.items.filter(x => x.fbAdj).map(x => exById(x.ex).m));   // feedback already set this muscle's volume today
-  const pick = day.items.map((t, i) => i).filter(i => !a.items[i].extra && !fbM.has(exById(day.items[i].ex).m) && (muscleCall(exById(day.items[i].ex).m) || {}).call !== "less" && extraOK(day.items[i], a.items[i])).sort((x, y) => P(y) - P(x) || x - y).slice(0, n);
-  pick.forEach(i => { const tpl = day.items[i], it = buildSessionItem({ ...tpl, sets:4 }, ctx, true), r = it.target.reps, lo = tpl.lo || 8;
+  const pick = day.items.map((t, i) => i).filter(i => !a.items[i].extra && !fbM.has(exById(day.items[i].ex).m) && (muscleCall(exById(day.items[i].ex).m) || {}).call !== "less" && extraOK(day.items[i], a.items[i]) && matesOK(a, day, i, (day.items[i].sets || 3) + 1)).sort((x, y) => P(y) - P(x) || x - y).slice(0, n);
+  pick.forEach(i => { if (a.items[i].extra) return;   // already matched to a partner picked just before
+    const tpl = day.items[i], it = buildSessionItem({ ...tpl, sets:4 }, ctx, true), r = it.target.reps, lo = tpl.lo || 8;
     if (r.length === 4 && r[2] !== "" && r[2] != null){ const was = r.join(", "); r[3] = Math.max(lo, (num(r[2]) || lo) - 1); it.sets[3].r = String(r[3]);
       if (it.target.why) it.target.why = it.target.why.split(was).join(r.join(", ")); }   // the note quotes the same reps as the headline
-    it.extra = true; a.items[i] = it; });
+    it.extra = true; a.items[i] = it; matchMates(a, day, ctx, i); });
 }
 function savedDay(id){ const t = state.saved.find(z => z.id === id); return t ? { id:"saved:" + t.id, name:t.name, items:t.items.map(it => ({ ...it })), savedId:t.id } : null; }
 function startSession(day, rd){
@@ -4189,7 +4229,7 @@ document.addEventListener("click", e => {
     case "startSaved": { const t = state.saved[+b.dataset.i]; if (!t) break; if (state.askReady){ ready = { i:-1, saved:t.id, a:{ sleep:"730-815", sore:"2", energy:"3" } }; render(); } else startSession(savedDay(t.id)); break; }
     case "svBuild": picker = { target:"newSaved", q:"", m:"All", e:"All", sel:[] }; render(); break;
     case "svAdd": picker = { target:"saved", d:+b.dataset.i, q:"", m:"All", e:"All", sel:[] }; render(); break;
-    case "svUp": { const t = state.saved[+b.dataset.i], j = +b.dataset.j; if (!t || !j) break; [t.items[j-1], t.items[j]] = [t.items[j], t.items[j-1]]; t.items[t.items.length-1].ss = false; t.updated = Date.now(); save(); render(); break; }
+    case "svUp": { const t = state.saved[+b.dataset.i], j = +b.dataset.j; if (!t || !moveGroup(t.items, j, -1)) break; t.items[t.items.length-1].ss = false; t.updated = Date.now(); save(); render(); break; }
     case "svSS": { const t = state.saved[+b.dataset.i], j = +b.dataset.j; if (!t || !t.items[j+1]) break; t.items[j].ss = !t.items[j].ss; save(); render(); break; }
     case "svRm": { const t = state.saved[+b.dataset.i], j = +b.dataset.j; if (!t) break; t.items.splice(j, 1); if (t.items.length) t.items[t.items.length-1].ss = false; save(); render(); break; }
     case "svRename": { const t = state.saved[+b.dataset.i], v = askName(t.name); if (v){ t.name = v.slice(0, 40); save(); render(); } break; }
@@ -4233,13 +4273,19 @@ document.addEventListener("click", e => {
       else state.timer = null;
       // a card above may shrink to one line on this tap: keep the tapped row where your thumb is, then show the next set
       { const y0 = b.getBoundingClientRect().top; save(); render(); const nb = document.getElementById(b.id); if (nb){ const d = nb.getBoundingClientRect().top - y0; if (Math.abs(d) > 1) window.scrollBy(0, d); } }
-      showNextSet(x); break;
+      // a set with an RIR row waits for the RIR tap before moving on; warm-ups, timed sets and calibration sets move on now
+      if (s.tag !== "W" && ex.t !== "time" && s.rir == null) keepRowVisible(b.id); else showNextSet(x);
+      break;
     }
     case "exPage": exPage = b.dataset.id; render(); break;
     case "exPageClose": exPage = null; render(); break;
     case "exOpen": { const it = state.active.items[x]; it.open = !it.open; save(); render(); break; }
     case "tag": { const st = state.active.items[x].sets[+b.dataset.s], order = ["", "W", "D", "F"]; st.tag = order[(order.indexOf(st.tag||"")+1) % 4] || undefined; if (!st.tag) delete st.tag; if (st.tag === "W") delete st.rir; save(); render(); break; }
-    case "rir": { const st = state.active.items[x].sets[+b.dataset.s], v = +b.dataset.v; st.rir = st.rir === v ? undefined : v; if (st.rir === undefined) delete st.rir; save(); render(); break; }
+    case "rir": { const st = state.active.items[x].sets[+b.dataset.s], v = +b.dataset.v; st.rir = st.rir === v ? undefined : v; if (st.rir === undefined) delete st.rir;
+      { const y0 = b.getBoundingClientRect().top; save(); render(); const nb = document.getElementById(b.id); if (nb){ const d = nb.getBoundingClientRect().top - y0; if (Math.abs(d) > 1) window.scrollBy(0, d); } }
+      // logging RIR on the set you just finished moves on to the next set, like ✓ does; fixing an older set's RIR stays put
+      if (st.rir !== undefined && st.done && st.ts === state.active.lastDone) showNextSet(x);
+      break; }
     case "swap": swap = { x }; render(); window.scrollTo(0,0); break;
     case "swapClose": swap = null; render(); break;
     case "swapPick": chooseSwap(b.dataset.id); break;
@@ -4256,7 +4302,7 @@ document.addEventListener("click", e => {
     case "rmSet": { const it = state.active.items[x], drop = () => { if (it.sets.length > 1) it.sets.pop(); save(); render(); };
       if (it.sets.length > 1 && it.sets[it.sets.length - 1].done) confirmThen("rmset" + x, drop); else drop(); break; }
     case "restTap": { const it = state.active.items[x]; startTimer(it.rest, exById(it.ex).n); save(); render(); break; }
-    case "sxUp": { const a = state.active.items; if (x > 0){ [a[x-1], a[x]] = [a[x], a[x-1]]; save(); render(); } break; }
+    case "sxUp": { if (moveGroup(state.active.items, x, -1)){ save(); render(); } break; }
     case "sxRm": confirmThen("sxrm"+x, ()=>{ state.active.items.splice(x,1); save(); render(); }); break;
     case "finish": tryFinish(false); break;
     case "fcFinish": tryFinish(true); break;
@@ -4319,8 +4365,8 @@ document.addEventListener("click", e => {
     case "addDay": state.days.push({ id:uid(), name:`Day ${state.days.length+1}`, items:[] }); save(); render(); break;
     case "dayUp": if (d > 0){ [state.days[d-1], state.days[d]] = [state.days[d], state.days[d-1]]; save(); render(); } break;
     case "dayRm": confirmThen("dayrm"+d, ()=>{ state.days.splice(d,1); save(); render(); }); break;
-    case "piUp": { const a = state.days[d].items; if (x > 0){ [a[x-1], a[x]] = [a[x], a[x-1]]; save(); render(); } break; }
-    case "piDown": { const a = state.days[d].items; if (x < a.length-1){ [a[x+1], a[x]] = [a[x], a[x+1]]; save(); render(); } break; }
+    case "piUp": { if (moveGroup(state.days[d].items, x, -1)){ ssFix = null; save(); render(); } break; }
+    case "piDown": { if (moveGroup(state.days[d].items, x, 1)){ ssFix = null; save(); render(); } break; }
     case "piRm": state.days[d].items.splice(x,1); save(); render(); break;
     case "piSets": { const it = state.days[d].items[x]; it.sets = Math.max(1, Math.min(10, it.sets + (+b.dataset.v))); save(); render(); break; }
     case "piRest": { const it = state.days[d].items[x]; it.rest = Math.max(0, Math.min(600, it.rest + (+b.dataset.v))); save(); render(); break; }

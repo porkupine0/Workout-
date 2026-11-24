@@ -131,6 +131,25 @@ const ok = (cond, name, detail) => { if (cond){ passes++; } else { fails++; cons
   ok(bw[0].kind === 'up' && bw[0].n === 3, 'no 4th set on a jump day', JSON.stringify(bw));
   ok(bw[1].n === 4 && bw[1].reps.split(', ').length === 4, 'build week still adds a 4th set on a same-weight day', JSON.stringify(bw));
   ok(bw[1].n !== 4 || !/\d+, \d+, \d+, \d+/.test(bw[1].why) || bw[1].why.includes(bw[1].reps), '4th-set note matches headline', JSON.stringify(bw[1]));
+  // supersets stay in step: a partner of an exercise that gets a 4th set gets one too, unless it can't take one
+  const ssb = await p.evaluate(() => { const F = n => lib().find(e => e.n === n).id, W = 7*864e5, S = (w, r) => ({ w:String(w), r:String(r), done:true, rir:2 }); state.phase = 'maintain'; state.light = null; state.buildOn = true; state.goals.priority = [];
+    const PD = F('Wide-Grip Lat Pulldown'), IP = F('Incline Dumbbell Press'), LR = F('Lateral Raise');
+    const hist = (pain, extra) => { expoCache.key = 'x'; state.sessions = [{ id:'h0', dayId:'d1', start:Date.now()-2*W-3600e3, end:Date.now()-2*W, items:[{ ex:PD, sets:[S(150,11),S(150,10),S(150,9)] }, { ex:IP, sets:[S(60,10),S(60,9),S(60,9)] }, { ex:LR, sets:[S(20,15),S(20,15),S(20,15)] }] },
+      { id:'h1', dayId:'d1', start:Date.now()-W-3600e3, end:Date.now()-W, items:[{ ex:PD, sets:[S(150,12),S(150,10),S(150,9)], ...(pain ? { pain:true } : {}) }, { ex:IP, sets:[S(60,10),S(60,10),S(60,9)] }, { ex:LR, sets:[S(20,15),S(20,15),S(20,15)] }, ...(extra || [])] }]; };
+    const run = (links, pain, three) => { hist(pain); state.days = [{ id:'d1', name:'U', items:[PD, IP, ...(three ? [LR] : [])].map((ex, i) => ({ ex, sets:3, lo:8, hi:12, rest:120, ss:links.includes(i) })) }];
+      state.block = { id:'b', n:2, start:Date.now() - 4.5*W, weeks:6, intro:false, scheme:0 }; startSession(state.days[0], null);
+      const r = state.active.items.map(it => it.sets.length + (it.match ? 'm' : '')).join(','); state.active = null; return r; };
+    const out = { pair:run([0]), pain:run([0], true), trio:run([0, 1], false, true), solo:run([]) };
+    // a short matching 4th set doesn't end the partner's own build for the block
+    const weak = match => { expoCache.key = 'y' + match; state.sessions = [{ id:'h0', dayId:'d1', start:Date.now()-2*W-3600e3, end:Date.now()-2*W, items:[{ ex:IP, sets:[S(60,10),S(60,9),S(60,9)] }] },
+      { id:'h1', dayId:'d1', start:Date.now()-W-3600e3, end:Date.now()-W, items:[{ ex:IP, sets:[S(60,10),S(60,10),S(60,9),S(60,5)], extra:true, ...(match ? { match:true } : {}) }] }];
+      state.days = [{ id:'d1', name:'U', items:[{ ex:IP, sets:3, lo:8, hi:12, rest:120 }] }]; const ctx = sessionCtx('d1'); return extraOK(state.days[0].items[0], buildSessionItem(state.days[0].items[0], ctx)); };
+    out.weakOwn = weak(false); out.weakMatch = weak(true); state.phase = undefined; return out; });
+  ok(ssb.solo === '3,4', 'unlinked: only the earning exercise gets a 4th set', JSON.stringify(ssb));
+  ok(ssb.pair === '4m,4', 'superset partner gets the 4th set too', JSON.stringify(ssb));
+  ok(!/4/.test(ssb.pain.split(',').slice(0, 2).join(',')), 'partner flagged pain: neither gets a 4th set', JSON.stringify(ssb));
+  ok(ssb.trio === '4m,4,4m', 'a triset all follows', JSON.stringify(ssb));
+  ok(ssb.weakOwn === false && ssb.weakMatch === true, 'a short matching 4th set does not end the partner build', JSON.stringify(ssb));
   // weight advice: stale logs are flagged, a typo doesn't flip the advice, a clearly fast cut is still called out
   const wa = await p.evaluate(() => { state.units = 'lb'; state.phase = 'cut'; const set = (f, from = 0) => { state.body.log = {}; for (let d = from; d < 28; d++) state.body.log[dkey(addDays(Date.now(), -d))] = { w:f(d) }; };
     const zig = d => (d % 2 ? .6 : -.6);
