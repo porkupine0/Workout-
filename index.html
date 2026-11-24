@@ -1028,7 +1028,7 @@ function exposuresRaw(exId){
     const pos = s.items.indexOf(it), inSS = it.ss || (pos > 0 && s.items[pos-1].ss), known = work.filter(x => x.rir != null);
     const rs = inSS ? [] : it.sets.filter((x, k) => k > 0 && x.done && x.tag !== "W" && x.rest != null && x.rest > 0).map(x => x.rest);
     out.push({ at:s.end, dayId:s.dayId, work, score, day, improved, pos, of:s.items.length, rest:rs.length ? avg(rs) : null, restT:it.rest || null,
-      back:it.back || null, pain:!!it.pain, rir:known.length ? avg(known.map(x => x.rir)) : null, pre:pos > 0 && s.items[pos-1].ss ? { ex:s.items[pos-1].ex, ov:overlapOf(exById(s.items[pos-1].ex), ex).v } : null, bad:!!((s.ready && BAD_DAY.has(s.ready.level)) || s.light || s.easy || it.pain), light:!!(s.light || s.easy), extra:!!it.extra, sid:s.id, flag:(it.target && it.target.flag) || null });
+      back:it.back || null, pain:!!it.pain, rir:known.length ? avg(known.map(x => x.rir)) : null, pre:pos > 0 && s.items[pos-1].ss ? { ex:s.items[pos-1].ex, ov:overlapOf(exById(s.items[pos-1].ex), ex).v } : null, bad:!!((s.ready && BAD_DAY.has(s.ready.level)) || s.light || s.easy || it.pain), light:!!(s.light || s.easy), extra:!!it.extra, match:!!it.match, sid:s.id, flag:(it.target && it.target.flag) || null });
     prior.push(...work); bestScore = Math.max(bestScore, score); bestDay = Math.max(bestDay, day); });
   return out;
 }
@@ -2246,7 +2246,7 @@ function sessionView(){
     // the reasons behind today's plan sit behind one toggle, so the card shows what to lift
     const whys = [
       ssPrev && ssWarnText(exById(a.items[xi-1].ex), ex) ? `⚠️ Starts tired from ${esc(exById(a.items[xi-1].ex).n)}. Compare its numbers to other superset days, not your fresh best.` : "",
-      it.fbWhy ? `${it.fbAdj > 0 ? "📈" : "📉"} ${esc(it.fbWhy)}` : it.extra ? `📈 Build week: a 4th set, since this one's still progressing. If set 4 lands under ${it.lo || 8}, it goes back to 3 for the rest of the block.` : "",
+      it.fbWhy ? `${it.fbAdj > 0 ? "📈" : "📉"} ${esc(it.fbWhy)}` : it.matchWhy ? `🔗 ${esc(it.matchWhy)}` : it.extra ? `📈 Build week: a 4th set, since this one's still progressing. If set 4 lands under ${it.lo || 8}, it goes back to 3 for the rest of the block.` : "",
       baseLikely(ex) && loaded(ex) && !(ex.id in state.base) ? `⚙️ This machine may add starting resistance (look for a sticker). Enter it once on the exercise page (tap the exercise name), or put 0 if there isn't one.` : ""
     ].filter(Boolean);
     return `<div class="panel exc ${inSS?"ss":""} ${it.ss?"ss-a":""} ${ssPrev?"ss-b":""}">
@@ -2366,10 +2366,10 @@ function applyFeedback(a, day, ctx){
     if (c.call === "less"){ const i = idx.filter(i => (day.items[i].sets || 3) >= 3).pop(); if (i == null) return;
       const it = buildSessionItem({ ...day.items[i], sets:(day.items[i].sets || 3) - 1 }, ctx, true); it.fbAdj = -1; it.fbWhy = `${m}: ${c.why}, so one set fewer today.`; a.items[i] = it; return; }
     if (phaseOf() === "cut" && !(state.goals.priority || []).includes(m)) return;   // on a cut, only priority muscles get extra
-    idx.filter(i => extraOK(day.items[i], a.items[i])).slice(0, c.streak && phaseOf() !== "cut" ? 2 : 1).forEach(i => {
+    idx.filter(i => !a.items[i].extra && extraOK(day.items[i], a.items[i]) && matesOK(a, day, i, (day.items[i].sets || 3) + 1)).slice(0, c.streak && phaseOf() !== "cut" ? 2 : 1).forEach(i => {
       const tpl = day.items[i], it = buildSessionItem({ ...tpl, sets:(tpl.sets || 3) + 1 }, ctx, true), r = it.target.reps, lo = tpl.lo || 8, n = r.length;
       if (n >= 2 && r[n-2] !== "" && r[n-2] != null){ r[n-1] = Math.max(lo - 1, (num(r[n-2]) || lo) - 1); it.sets[n-1].r = String(r[n-1]); }
-      it.extra = true; it.fbAdj = 1; it.fbWhy = `${m}: ${c.why}, so one more set today.`; a.items[i] = it; });
+      it.extra = true; it.fbAdj = 1; it.fbWhy = `${m}: ${c.why}, so one more set today.`; a.items[i] = it; matchMates(a, day, ctx, i); });
   });
 }
 function summaryView(){
@@ -4000,17 +4000,39 @@ function extraOK(tpl, item){
   if (!L || L.pain || L.back || L.work.length < 3 || (num(L.work[2].r) || 0) < lo + 1) return false;
   if (H.length >= 2 && L.score < H[H.length - 2].score * .97) return false;
   const since = state.block ? state.block.start : 0;
-  return !H.some(h => h.at >= since && h.work.length >= 4 && (num(h.work[3].r) || 0) < lo);
+  return !H.some(h => h.at >= since && !h.match && h.work.length >= 4 && (num(h.work[3].r) || 0) < lo);
+}
+// Supersets stay in step: when one exercise gets an extra set, its linked partners get one too. A partner doesn't have to
+// earn it, but it must be able to take it: not after pain, not when its muscle's feedback says less, and not past the
+// day cap. If a partner can't, nobody in the group gets the extra set, so the slot goes to another exercise.
+function ssMates(day, i){ const g = ssGroups(day.items).find(([s, e]) => i >= s && i <= e); return g ? Array.from({ length:g[1] - g[0] + 1 }, (_, k) => g[0] + k).filter(j => j !== i) : []; }
+function mateOK(a, day, j, sets, lead){
+  const it = a.items[j], ex = exById(day.items[j].ex); if (!it) return false;
+  if (it.sets.length >= sets) return true;   // already has as many sets
+  if (it.fbAdj < 0 || (muscleCall(ex.m) || {}).call === "less") return false;
+  const H = exposures(day.items[j].ex), L = H[H.length - 1]; if (L && (L.pain || L.back)) return false;
+  if (LIFT_MUSCLES.includes(ex.m) && creditSets(a.items, ex.m, x => x.sets.length) + 1 + (exById(day.items[lead].ex).m === ex.m ? 1 : 0) > volCaps().day) return false;
+  return true;
+}
+const matesOK = (a, day, i, sets) => ssMates(day, i).every(j => mateOK(a, day, j, sets, i));
+function matchMates(a, day, ctx, i){
+  const lead = a.items[i], n = lead.sets.length, name = exById(lead.ex).n;
+  ssMates(day, i).forEach(j => { const cur = a.items[j]; if (cur.sets.length >= n) return;
+    const tpl = day.items[j], ex = exById(tpl.ex), it = buildSessionItem({ ...tpl, sets:cur.sets.length + 1 }, ctx, true), r = it.target.reps, k = r.length, lo = tpl.lo || 8;
+    if (ex.t !== "time" && k >= 2 && r[k-2] !== "" && r[k-2] != null){ r[k-1] = Math.max(lo, (num(r[k-2]) || lo) - 1); it.sets[k-1].r = String(r[k-1]); }
+    it.extra = true; it.match = true; it.matchWhy = `One extra set to match ${name}, so the superset stays in step. It doesn't count against this exercise if it comes up short.`;
+    a.items[j] = it; });
 }
 function addBuildSets(a, day, ctx){
   const n = buildCount(ctx); if (!n) return;
   const prio = new Set(state.goals.priority || []), P = i => prio.has(exById(day.items[i].ex).m) ? 1 : 0;
   const fbM = new Set(a.items.filter(x => x.fbAdj).map(x => exById(x.ex).m));   // feedback already set this muscle's volume today
-  const pick = day.items.map((t, i) => i).filter(i => !a.items[i].extra && !fbM.has(exById(day.items[i].ex).m) && (muscleCall(exById(day.items[i].ex).m) || {}).call !== "less" && extraOK(day.items[i], a.items[i])).sort((x, y) => P(y) - P(x) || x - y).slice(0, n);
-  pick.forEach(i => { const tpl = day.items[i], it = buildSessionItem({ ...tpl, sets:4 }, ctx, true), r = it.target.reps, lo = tpl.lo || 8;
+  const pick = day.items.map((t, i) => i).filter(i => !a.items[i].extra && !fbM.has(exById(day.items[i].ex).m) && (muscleCall(exById(day.items[i].ex).m) || {}).call !== "less" && extraOK(day.items[i], a.items[i]) && matesOK(a, day, i, (day.items[i].sets || 3) + 1)).sort((x, y) => P(y) - P(x) || x - y).slice(0, n);
+  pick.forEach(i => { if (a.items[i].extra) return;   // already matched to a partner picked just before
+    const tpl = day.items[i], it = buildSessionItem({ ...tpl, sets:4 }, ctx, true), r = it.target.reps, lo = tpl.lo || 8;
     if (r.length === 4 && r[2] !== "" && r[2] != null){ const was = r.join(", "); r[3] = Math.max(lo, (num(r[2]) || lo) - 1); it.sets[3].r = String(r[3]);
       if (it.target.why) it.target.why = it.target.why.split(was).join(r.join(", ")); }   // the note quotes the same reps as the headline
-    it.extra = true; a.items[i] = it; });
+    it.extra = true; a.items[i] = it; matchMates(a, day, ctx, i); });
 }
 function savedDay(id){ const t = state.saved.find(z => z.id === id); return t ? { id:"saved:" + t.id, name:t.name, items:t.items.map(it => ({ ...it })), savedId:t.id } : null; }
 function startSession(day, rd){
