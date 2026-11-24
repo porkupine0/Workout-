@@ -2193,6 +2193,12 @@ function blockCard(){
 }
 
 // after ✓, bring the next set to log into view (a superset partner first), without focusing a box or opening the keyboard
+// after ✓ on a set that still needs its RIR: keep that row (with its RIR buttons) clear of the top bar and the dock
+function keepRowVisible(id){
+  const el = document.getElementById(id), row = el && el.closest(".setrow"); if (!row) return;
+  const r = row.getBoundingClientRect(), dock = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--dockH")) || 0;
+  if (r.top < 90 || r.bottom > innerHeight - dock - 8) row.scrollIntoView({ block:"center", behavior:matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+}
 function showNextSet(x){
   const its = state.active ? state.active.items : [], open = i => its[i] && its[i].sets.findIndex(q => !q.done);
   const order = [];
@@ -4233,13 +4239,19 @@ document.addEventListener("click", e => {
       else state.timer = null;
       // a card above may shrink to one line on this tap: keep the tapped row where your thumb is, then show the next set
       { const y0 = b.getBoundingClientRect().top; save(); render(); const nb = document.getElementById(b.id); if (nb){ const d = nb.getBoundingClientRect().top - y0; if (Math.abs(d) > 1) window.scrollBy(0, d); } }
-      showNextSet(x); break;
+      // a set with an RIR row waits for the RIR tap before moving on; warm-ups, timed sets and calibration sets move on now
+      if (s.tag !== "W" && ex.t !== "time" && s.rir == null) keepRowVisible(b.id); else showNextSet(x);
+      break;
     }
     case "exPage": exPage = b.dataset.id; render(); break;
     case "exPageClose": exPage = null; render(); break;
     case "exOpen": { const it = state.active.items[x]; it.open = !it.open; save(); render(); break; }
     case "tag": { const st = state.active.items[x].sets[+b.dataset.s], order = ["", "W", "D", "F"]; st.tag = order[(order.indexOf(st.tag||"")+1) % 4] || undefined; if (!st.tag) delete st.tag; if (st.tag === "W") delete st.rir; save(); render(); break; }
-    case "rir": { const st = state.active.items[x].sets[+b.dataset.s], v = +b.dataset.v; st.rir = st.rir === v ? undefined : v; if (st.rir === undefined) delete st.rir; save(); render(); break; }
+    case "rir": { const st = state.active.items[x].sets[+b.dataset.s], v = +b.dataset.v; st.rir = st.rir === v ? undefined : v; if (st.rir === undefined) delete st.rir;
+      { const y0 = b.getBoundingClientRect().top; save(); render(); const nb = document.getElementById(b.id); if (nb){ const d = nb.getBoundingClientRect().top - y0; if (Math.abs(d) > 1) window.scrollBy(0, d); } }
+      // logging RIR on the set you just finished moves on to the next set, like ✓ does; fixing an older set's RIR stays put
+      if (st.rir !== undefined && st.done && st.ts === state.active.lastDone) showNextSet(x);
+      break; }
     case "swap": swap = { x }; render(); window.scrollTo(0,0); break;
     case "swapClose": swap = null; render(); break;
     case "swapPick": chooseSwap(b.dataset.id); break;
